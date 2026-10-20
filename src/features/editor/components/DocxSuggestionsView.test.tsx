@@ -49,7 +49,7 @@ async function addition(): Promise<HTMLElement> {
 const countMessage = 'Показано в тексте: 1 из 1';
 
 describe('DocxSuggestionsView', () => {
-  it('рисует зелёное добавление после якоря внутри страницы, не в конце раздела', () => {
+  it('рисует зелёное добавление после якоря внутри страницы, не в конце раздела', async () => {
     render(<DocxSuggestionsView {...props()} />);
     const anchor = await addition();
     expect(anchor).toHaveTextContent('Новый текст');
@@ -59,6 +59,53 @@ describe('DocxSuggestionsView', () => {
     expect(screen.getByTestId('docx-anchor-report')).toHaveTextContent(countMessage);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['pending', 'suggestions'],
+    ['accepted', 'clean'],
+  ] as const)(
+    'оставляет две вставки у своих якорей на разных страницах: %s/%s',
+    async (status, mode) => {
+      const items: EditorSuggestion[] = [
+        {
+          ...add,
+          id: 'roles',
+          original_text: 'Права пользователей',
+          suggested_text: 'Новая роль',
+          status,
+        },
+        {
+          ...add,
+          id: 'backup',
+          original_text: 'Резервное копирование',
+          suggested_text: 'Тест восстановления',
+          status,
+        },
+      ];
+      const base = props(items);
+      base.render.mockImplementation((_blob: Blob, host: HTMLElement) => {
+        host.innerHTML =
+          '<section><article><p>Права <b>пользователей</b></p><p>Конец первой страницы</p></article></section>' +
+          '<section><article><p>Резервное копирование</p><p>Заключительные положения</p></article></section>';
+        return Promise.resolve();
+      });
+      render(<DocxSuggestionsView {...base} mode={mode} />);
+      await screen.findByText('Новая роль');
+      const roles = document.querySelector(`[${ANCHOR_ATTR}="roles"]`);
+      const backup = document.querySelector(`[${ANCHOR_ATTR}="backup"]`);
+      expect(roles).toHaveTextContent('Новая роль');
+      expect(roles?.previousElementSibling).toHaveTextContent('Права пользователей');
+      expect(roles?.nextElementSibling).toHaveTextContent('Конец первой страницы');
+      expect(backup).toHaveTextContent('Тест восстановления');
+      expect(backup?.previousElementSibling).toHaveTextContent('Резервное копирование');
+      expect(backup?.nextElementSibling).toHaveTextContent('Заключительные положения');
+      expect(roles?.parentElement).not.toBe(backup?.parentElement);
+      expect(roles?.parentElement?.tagName).toBe('ARTICLE');
+      expect(backup?.parentElement?.tagName).toBe('ARTICLE');
+      expect(screen.getByText('Заключительные положения').nextElementSibling).toBeNull();
+      expect(screen.getByTestId('docx-anchor-report')).toHaveTextContent('Показано в тексте: 2 из 2');
+    },
+  );
 
   it('не показывает непривязанное добавление в документе и объясняет причину', async () => {
     render(<DocxSuggestionsView {...props([{ ...add, original_text: 'отсутствующий якорь' }])} />);
