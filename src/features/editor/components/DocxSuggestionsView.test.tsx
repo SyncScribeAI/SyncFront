@@ -103,7 +103,9 @@ describe('DocxSuggestionsView', () => {
       expect(roles?.parentElement?.tagName).toBe('ARTICLE');
       expect(backup?.parentElement?.tagName).toBe('ARTICLE');
       expect(screen.getByText('Заключительные положения').nextElementSibling).toBeNull();
-      expect(screen.getByTestId('docx-anchor-report')).toHaveTextContent('Показано в тексте: 2 из 2');
+      expect(screen.getByTestId('docx-anchor-report')).toHaveTextContent(
+        'Показано в тексте: 2 из 2',
+      );
     },
   );
 

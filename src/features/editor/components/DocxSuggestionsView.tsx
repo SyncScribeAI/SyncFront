@@ -16,6 +16,7 @@ import { cn } from '@/lib/cn';
 
 import { decorateAnchor, type InlineMode } from '../lib/decorateAnchor';
 import { ANCHOR_ATTR, anchorSuggestions, type AnchorReport } from '../lib/docxAnchors';
+import { isMarkerActivation, isSuggestionTarget } from '../lib/suggestionKeyboard';
 import { renderDocx } from '../lib/renderDocx';
 
 import { DOCX_RENDER_FAILED, HOST_CLASS } from './OriginalDocxView';
@@ -40,9 +41,9 @@ interface DocxSuggestionsViewProps {
 
 type RenderState = 'idle' | 'rendering' | 'ready' | 'failed';
 
-function anchorIdOf(target: EventTarget | null): string | null {
+function anchorOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
-  return target.closest<HTMLElement>(`[${ANCHOR_ATTR}]`)?.dataset.suggestionId ?? null;
+  return target.closest<HTMLElement>(`[${ANCHOR_ATTR}]`);
 }
 
 /**
@@ -114,15 +115,21 @@ export function DocxSuggestionsView({
   }, [report, suggestions, statusOf, newTextOf, selectedId, mode]);
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
-    const id = anchorIdOf(event.target);
-    if (id) onSelect(id);
+    const marker = anchorOf(event.target);
+    const id = marker?.dataset.suggestionId;
+    if (id && marker && !event.defaultPrevented && isSuggestionTarget(event.target, marker)) {
+      onSelect(id);
+      hostRef.current?.focus({ preventScroll: true });
+    }
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    const id = anchorIdOf(event.target);
-    if (!id) return;
+    if (event.defaultPrevented || !isMarkerActivation(event.nativeEvent)) return;
+    const marker = anchorOf(event.target);
+    const id = marker?.dataset.suggestionId;
+    if (!id || !marker || !isSuggestionTarget(event.target, marker)) return;
     event.preventDefault();
     onSelect(id);
+    hostRef.current?.focus({ preventScroll: true });
   };
 
   const failed = state === 'failed' || (error !== null && error !== undefined);
@@ -182,9 +189,10 @@ export function DocxSuggestionsView({
       {/* Делегирование: якоря создаются вне React, их события ловим на контейнере. */}
       <div
         ref={hostRef}
+        tabIndex={-1}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
-        className={cn(HOST_CLASS, (busy || failed) && 'hidden')}
+        className={cn(HOST_CLASS, 'outline-none', (busy || failed) && 'hidden')}
       />
     </div>
   );

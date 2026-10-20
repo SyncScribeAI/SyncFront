@@ -1,11 +1,12 @@
 import { Check, Pencil, Undo2, X } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useCallback, useRef } from 'react';
 
 import type { ChangeSegment, Segment } from '@/domain/editor/projection';
 import { changeTypeMeta, decisionLabel, type ChangeType } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
 
 import { renderMarkdownText } from '../lib/markdownLite';
+import { isMarkerActivation, isSuggestionTarget } from '../lib/suggestionKeyboard';
 import type { ViewMode } from '../model/useEditorModel';
 
 interface DocumentTextProps {
@@ -46,10 +47,21 @@ export function DocumentText({
   onUndo,
   markdown = false,
 }: DocumentTextProps) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const selectSuggestion = useCallback(
+    (id: string) => {
+      onSelect(id);
+      hostRef.current?.focus({ preventScroll: true });
+    },
+    [onSelect],
+  );
+
   return (
     <div
-      className="whitespace-pre-wrap break-words font-serif text-sm leading-6 text-foreground md:text-[15px] md:leading-7"
+      className="whitespace-pre-wrap break-words font-serif text-sm leading-6 text-foreground outline-none md:text-[15px] md:leading-7"
       data-testid="document-text"
+      ref={hostRef}
+      tabIndex={-1}
     >
       {mode === 'original'
         ? markdown
@@ -70,7 +82,7 @@ export function DocumentText({
                 mode={mode}
                 block={segment.changeType === 'add' || occupiesParagraph(segments, index)}
                 selected={segment.id === selectedId}
-                onSelect={onSelect}
+                onSelect={selectSuggestion}
                 onUndo={onUndo}
               />
             ),
@@ -174,9 +186,16 @@ const ChangePart = memo(
         aria-label={label}
         aria-pressed={selected}
         data-suggestion-id={segment.id}
-        onClick={() => onSelect(segment.id)}
+        onClick={(event) => {
+          if (!event.defaultPrevented && isSuggestionTarget(event.target, event.currentTarget))
+            onSelect(segment.id);
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
+          if (
+            isMarkerActivation(event.nativeEvent) &&
+            !event.defaultPrevented &&
+            isSuggestionTarget(event.target, event.currentTarget)
+          ) {
             event.preventDefault();
             onSelect(segment.id);
           }

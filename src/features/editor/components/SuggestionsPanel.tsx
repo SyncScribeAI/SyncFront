@@ -20,6 +20,8 @@ import type { ReviewProgress } from '@/domain/editor/review';
 import { decisionLabel, type SuggestionStatus } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
 
+import { isInteractiveTarget } from '../lib/suggestionKeyboard';
+
 import {
   ESTIMATED_CARD_HEIGHT,
   FALLBACK_VIEWPORT_HEIGHT,
@@ -50,36 +52,6 @@ interface SuggestionsPanelProps {
   onUndo?: (id: string) => void;
   /** Карточка выбранной правки и блок завершения — над списком. */
   header?: React.ReactNode;
-}
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(
-    target.closest(
-      [
-        'input',
-        'textarea',
-        'select',
-        'button',
-        'a[href]',
-        'summary',
-        '[contenteditable]:not([contenteditable="false"])',
-        '[role="button"]',
-        '[role="link"]',
-        '[role="menuitem"]',
-        '[role="option"]',
-        '[role="radio"]',
-        '[role="checkbox"]',
-        '[role="switch"]',
-        '[role="slider"]',
-        '[role="spinbutton"]',
-        '[role="combobox"]',
-        '[role="listbox"]',
-        '[role="textbox"]',
-        '[tabindex]:not([tabindex="-1"])',
-      ].join(', '),
-    ),
-  );
 }
 
 function shortText(s: SuggestionResponse): string {
@@ -146,7 +118,7 @@ export function SuggestionsPanel({
         return;
       }
 
-      if (event.key === 'Enter' && selectedIndex >= 0) {
+      if (event.key === 'Enter' && !event.repeat && selectedIndex >= 0) {
         const selected = filtered[selectedIndex];
         if (selected && canReview && statusOf(selected) === 'pending' && onDecide) {
           event.preventDefault();
