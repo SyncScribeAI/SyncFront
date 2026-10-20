@@ -36,6 +36,26 @@ export interface LocatedSuggestion {
   exportable: boolean;
   /** Показана ли правка внутри текста. */
   inline: boolean;
+  /**
+   * Смещение правки в исходном тексте (UTF-16); null, если привязать не удалось.
+   * Для add — точка вставки (конец строки с якорем), а не конец якоря.
+   */
+  originOffset: number | null;
+  /**
+   * Порядковый номер правки в итоговой проекции (сверху вниз по документу).
+   * Разрешает совпадающие смещения, например несколько add в одном абзаце.
+   */
+  documentOrder?: number;
+}
+
+function locatedSuggestion(
+  value: Omit<LocatedSuggestion, 'originOffset' | 'documentOrder'>,
+  originOffset: number | null,
+): LocatedSuggestion {
+  return Object.defineProperty(value, 'originOffset', {
+    value: originOffset,
+    enumerable: false,
+  }) as LocatedSuggestion;
 }
 
 export interface TextSegment {
@@ -142,7 +162,10 @@ export function buildProjection(input: ProjectionInput): Projection {
 
     if (suggestion.change_type === 'add') {
       if (!suggestion.suggested_text) {
-        located[suggestion.id] = { issue: 'not_applicable', exportable: false, inline: false };
+        located[suggestion.id] = locatedSuggestion(
+          { issue: 'not_applicable', exportable: false, inline: false },
+          null,
+        );
         continue;
       }
       const placed = placeAddition(
@@ -151,35 +174,53 @@ export function buildProjection(input: ProjectionInput): Projection {
         suggestion,
       );
       if (placed === 'not_found') {
-        located[suggestion.id] = { issue: 'not_found', exportable: false, inline: false };
+        located[suggestion.id] = locatedSuggestion(
+          { issue: 'not_found', exportable: false, inline: false },
+          null,
+        );
         continue;
       }
       if (placed === 'overlap') {
-        located[suggestion.id] = { issue: 'overlap', exportable: true, inline: false };
+        located[suggestion.id] = locatedSuggestion(
+          { issue: 'overlap', exportable: true, inline: false },
+          null,
+        );
         continue;
       }
-      pieces = placed;
-      located[suggestion.id] = { issue: null, exportable: true, inline: true };
+      located[suggestion.id] = locatedSuggestion(
+        { issue: null, exportable: true, inline: true },
+        placed.originOffset,
+      );
+      pieces = placed.pieces;
       continue;
     }
 
     const old = suggestion.original_text ?? '';
     if (!old || (isDocx(format) && old.includes('\n'))) {
-      located[suggestion.id] = { issue: 'not_applicable', exportable: false, inline: false };
+      located[suggestion.id] = locatedSuggestion(
+        { issue: 'not_applicable', exportable: false, inline: false },
+        null,
+      );
       continue;
     }
 
     const contributions = pieces.map(serverText);
     const index = contributions.join('').indexOf(old);
     if (index === -1) {
-      located[suggestion.id] = { issue: 'not_found', exportable: false, inline: false };
+      located[suggestion.id] = locatedSuggestion(
+        { issue: 'not_found', exportable: false, inline: false },
+        null,
+      );
       continue;
     }
 
     const hit = findTextPiece(pieces, contributions, index, old.length);
     if (!hit) {
       // Сервер применит правку к тексту, уже изменённому соседней правкой; показать это точно нельзя.
-      located[suggestion.id] = { issue: 'overlap', exportable: true, inline: false };
+      located[suggestion.id] = locatedSuggestion(
+        { issue: 'overlap', exportable: true, inline: false },
+        null,
+      );
       continue;
     }
     const { index: target, piece, start } = hit;
@@ -191,11 +232,10 @@ export function buildProjection(input: ProjectionInput): Projection {
     const outside =
       section !== undefined &&
       (originStart < section.start_offset || originStart + old.length > section.end_offset);
-    located[suggestion.id] = {
-      issue: outside ? 'outside_section' : null,
-      exportable: true,
-      inline: true,
-    };
+    located[suggestion.id] = locatedSuggestion(
+      { issue: outside ? 'outside_section' : null, exportable: true, inline: true },
+      originStart,
+    );
 
     const replacement: Piece[] = [];
     if (start > 0)
@@ -204,6 +244,16 @@ export function buildProjection(input: ProjectionInput): Projection {
     const tail = piece.text.slice(start + old.length);
     if (tail) replacement.push({ kind: 'text', text: tail, origin: originStart + old.length });
     pieces = [...pieces.slice(0, target), ...replacement, ...pieces.slice(target + 1)];
+  }
+
+  let order = 0;
+  for (const piece of pieces) {
+    if (piece.kind !== 'change') continue;
+    const item = located[piece.id];
+    if (item?.inline) {
+      Object.defineProperty(item, 'documentOrder', { value: order, enumerable: false });
+      order += 1;
+    }
   }
 
   return { segments: pieces.map(toSegment), located };
@@ -240,12 +290,13 @@ function findTextPiece(
  * Якорь ищется в тексте, каким его видит сервер на этом шаге (с уже принятыми правками).
  * 'not_found' — якоря нет или он не найден: сервер такое добавление не применит.
  * 'overlap' — якорь есть, но лежит внутри другой правки: сервер вставку применит, показать её точно нельзя.
+ * originOffset — реальная точка вставки в исходном тексте, а не конец якоря.
  */
 function placeAddition(
   pieces: Piece[],
   change: ChangeSegment,
   suggestion: EditorSuggestion,
-): Piece[] | 'not_found' | 'overlap' {
+): { pieces: Piece[]; originOffset: number } | 'not_found' | 'overlap' {
   const anchor = (suggestion.original_text ?? '').trim();
   if (!anchor) return 'not_found';
   const contributions = pieces.map(serverText);
@@ -256,7 +307,10 @@ function placeAddition(
   const from = hit.start + anchor.length;
   const newline = hit.piece.text.indexOf('\n', from);
   const at = newline === -1 ? hit.piece.text.length : newline;
-  return splitPiece(pieces, hit.index, at, change);
+  return {
+    pieces: splitPiece(pieces, hit.index, at, change),
+    originOffset: hit.piece.origin + at,
+  };
 }
 
 /** Вставить правку внутрь текстового куска по локальному смещению. */

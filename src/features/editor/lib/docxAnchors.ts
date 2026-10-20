@@ -6,7 +6,7 @@
  * несколько ранов с разным форматированием: Range.extractContents клонирует частичные
  * обёртки, так что жирный/курсив внутри фрагмента сохраняются.
  */
-import { sectionsInUtf16, type DocumentSection } from '@/domain/editor/projection';
+import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion } from '@/domain/editor/suggestion';
 
 export const ANCHOR_ATTR = 'data-suggestion-id';
@@ -26,7 +26,7 @@ export interface AnchorReport {
 export interface AnchorInput {
   suggestions: readonly EditorSuggestion[];
   sections: readonly DocumentSection[];
-  /** plain_text сервера: по нему ищется абзац-якорь для добавлений (конец раздела). */
+  /** plain_text сервера; место добавления определяется только по original_text в DOM. */
   plainText: string;
 }
 
@@ -102,39 +102,26 @@ function wrap(doc: Document, range: Range, id: string): HTMLElement {
   return span;
 }
 
-/**
- * Абзац, после которого вставить добавление: последняя непустая строка раздела в plain_text,
- * если она встречается в документе ровно один раз (иначе пробуем строки выше, до трёх).
- */
-function paragraphForAdd(
-  blocks: FlatBlock[],
-  suggestion: EditorSuggestion,
-  sections: readonly DocumentSection[],
-  plainText: string,
-): HTMLElement | null {
-  const section = suggestion.section_ref
-    ? sections.find((s) => s.ref === suggestion.section_ref)
-    : undefined;
-  if (!section) return null;
-  const lines = plainText
-    .slice(section.start_offset, section.end_offset)
-    .split('\n')
-    .map((line) => normalize(line).trim())
-    .filter(Boolean)
-    .reverse()
-    .slice(0, 3);
-  for (const line of lines) {
-    const matches = blocks.filter((block) => block.text.trim() === line);
-    if (matches.length === 1) return matches[0]?.element ?? null;
-  }
-  return null;
+/** Та же нормализация, что у SyncBack normalize_text; DOM при поиске не меняем. */
+function normalizeAddAnchor(text: string): string {
+  return text
+    .normalize('NFC')
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u00a0\u202f\u2007\u2009]/g, ' ')
+    .replace(/[\u200b\ufeff]/g, '');
+}
+
+/** Как DocxExporter: первый абзац с original_text, без fallback на раздел или конец. */
+function paragraphForAdd(blocks: FlatBlock[], suggestion: EditorSuggestion): HTMLElement | null {
+  const needle = normalizeAddAnchor(suggestion.original_text ?? '').trim();
+  if (!needle) return null;
+  return blocks.find((block) => normalizeAddAnchor(block.text).includes(needle))?.element ?? null;
 }
 
 export function anchorSuggestions(root: HTMLElement, input: AnchorInput): AnchorReport {
   const anchored = new Map<string, HTMLElement>();
   const missed = new Map<string, AnchorMiss>();
   const originals = new WeakMap<HTMLElement, DocumentFragment>();
-  const sections = sectionsInUtf16(input.plainText, input.sections);
   const adds: EditorSuggestion[] = [];
 
   for (const suggestion of input.suggestions) {
@@ -170,11 +157,14 @@ export function anchorSuggestions(root: HTMLElement, input: AnchorInput): Anchor
 
   const blocks = collectBlocks(root);
   for (const suggestion of adds) {
-    const after = paragraphForAdd(blocks, suggestion, sections, input.plainText);
+    const after = paragraphForAdd(blocks, suggestion);
+    if (!after) {
+      missed.set(suggestion.id, 'not_found');
+      continue;
+    }
     const paragraph = root.ownerDocument.createElement('p');
     paragraph.setAttribute(ANCHOR_ATTR, suggestion.id);
-    if (after) after.insertAdjacentElement('afterend', paragraph);
-    else root.appendChild(paragraph);
+    after.insertAdjacentElement('afterend', paragraph);
     originals.set(paragraph, root.ownerDocument.createDocumentFragment());
     anchored.set(suggestion.id, paragraph);
   }

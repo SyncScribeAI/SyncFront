@@ -9,7 +9,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { SuggestionResponse } from '@/api/types';
 import { Progress } from '@/components/ui/progress';
@@ -20,12 +20,15 @@ import type { ReviewProgress } from '@/domain/editor/review';
 import { decisionLabel, type SuggestionStatus } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
 
+import { isInteractiveTarget } from '../lib/suggestionKeyboard';
+
 import {
   ESTIMATED_CARD_HEIGHT,
   FALLBACK_VIEWPORT_HEIGHT,
   isVirtualized,
   LIST_OVERSCAN,
 } from '../model/suggestionList';
+import { orderSuggestions } from '../model/orderSuggestions';
 import { EMPTY_FILTER_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
@@ -69,13 +72,69 @@ export function SuggestionsPanel({
   header,
 }: SuggestionsPanelProps) {
   const [filter, setFilter] = useState<SuggestionFilter>('pending');
+  const panelRef = useRef<HTMLElement>(null);
 
-  const filtered = suggestions.filter((s) => {
-    const status = statusOf(s);
-    if (filter === 'pending') return status === 'pending';
-    if (filter === 'decided') return status !== 'pending';
-    return true;
-  });
+  const filtered = useMemo(
+    () =>
+      orderSuggestions(suggestions, located).filter((s) => {
+        const status = statusOf(s);
+        if (filter === 'pending') return status === 'pending';
+        if (filter === 'decided') return status !== 'pending';
+        return true;
+      }),
+    [filter, located, statusOf, suggestions],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      )
+        return;
+      if (
+        panelRef.current?.closest('[aria-hidden="true"]') ||
+        event.isComposing ||
+        isInteractiveTarget(event.target) ||
+        filtered.length === 0
+      )
+        return;
+
+      const selectedIndex = filtered.findIndex((suggestion) => suggestion.id === selectedId);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        const nextIndex =
+          selectedIndex === -1
+            ? delta > 0
+              ? 0
+              : filtered.length - 1
+            : Math.min(filtered.length - 1, Math.max(0, selectedIndex + delta));
+        const next = filtered[nextIndex];
+        if (next) onSelect(next.id);
+        return;
+      }
+
+      if (event.key === 'Enter' && !event.repeat && selectedIndex >= 0) {
+        const selected = filtered[selectedIndex];
+        if (selected && canReview && statusOf(selected) === 'pending' && onDecide) {
+          event.preventDefault();
+          onDecide(selected.id, 'accepted');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [canReview, filtered, onDecide, onSelect, selectedId, statusOf]);
+
+  const selectSuggestion = (id: string) => {
+    onSelect(id);
+    panelRef.current?.focus({ preventScroll: true });
+  };
 
   const renderCard = (s: SuggestionResponse) => (
     <SuggestionCard
@@ -85,14 +144,19 @@ export function SuggestionsPanel({
       selected={s.id === selectedId}
       unsaved={unsavedIds.has(s.id)}
       canReview={canReview}
-      onSelect={onSelect}
+      onSelect={selectSuggestion}
       onDecide={onDecide}
       onUndo={onUndo}
     />
   );
 
   return (
-    <aside aria-labelledby="suggestions-title" className="flex min-h-0 flex-col gap-5">
+    <aside
+      ref={panelRef}
+      tabIndex={-1}
+      aria-labelledby="suggestions-title"
+      className="flex min-h-0 flex-col gap-5 outline-none"
+    >
       {/* Шапка панели отделена линией от фильтра и списка — как на макете. */}
       <div className="space-y-2 border-b pb-5">
         <div className="flex items-center justify-between gap-2">
@@ -128,21 +192,42 @@ export function SuggestionsPanel({
       ) : isVirtualized(filtered.length) ? (
         <VirtualSuggestionList items={filtered} selectedId={selectedId} renderCard={renderCard} />
       ) : (
-        <ul className="space-y-3" aria-label="Список предложений">
-          {filtered.map((s) => (
-            <li key={s.id}>{renderCard(s)}</li>
-          ))}
-        </ul>
+        <SuggestionList items={filtered} selectedId={selectedId} renderCard={renderCard} />
       )}
     </aside>
   );
 }
 
-interface VirtualSuggestionListProps {
+interface SuggestionListProps {
   items: SuggestionResponse[];
   selectedId: string | null;
   renderCard: (s: SuggestionResponse) => React.ReactNode;
 }
+
+/** Короткий список: выбранная извне или с клавиатуры карточка остаётся в видимой области. */
+function SuggestionList({ items, selectedId, renderCard }: SuggestionListProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const selectedItem = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>('[data-suggestion-id]') ?? [],
+    ).find((element) => element.dataset.suggestionId === selectedId);
+    selectedItem?.scrollIntoView?.({ block: 'nearest' });
+  }, [items, selectedId]);
+
+  return (
+    <ul ref={listRef} className="space-y-3" aria-label="Список предложений">
+      {items.map((suggestion) => (
+        <li key={suggestion.id} data-suggestion-id={suggestion.id}>
+          {renderCard(suggestion)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type VirtualSuggestionListProps = SuggestionListProps;
 
 /** Длинный список: в DOM только видимые карточки плюс небольшой запас сверху и снизу. */
 function VirtualSuggestionList({ items, selectedId, renderCard }: VirtualSuggestionListProps) {
