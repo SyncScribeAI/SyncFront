@@ -36,12 +36,20 @@ export interface LocatedSuggestion {
   exportable: boolean;
   /** Показана ли правка внутри текста. */
   inline: boolean;
-  /** Смещение правки или якоря в исходном тексте (UTF-16); null, если привязать не удалось. */
+  /**
+   * Смещение правки в исходном тексте (UTF-16); null, если привязать не удалось.
+   * Для add — точка вставки (конец строки с якорем), а не конец якоря.
+   */
   originOffset: number | null;
+  /**
+   * Порядковый номер правки в итоговой проекции (сверху вниз по документу).
+   * Разрешает совпадающие смещения, например несколько add в одном абзаце.
+   */
+  documentOrder?: number;
 }
 
 function locatedSuggestion(
-  value: Omit<LocatedSuggestion, 'originOffset'>,
+  value: Omit<LocatedSuggestion, 'originOffset' | 'documentOrder'>,
   originOffset: number | null,
 ): LocatedSuggestion {
   return Object.defineProperty(value, 'originOffset', {
@@ -238,6 +246,16 @@ export function buildProjection(input: ProjectionInput): Projection {
     pieces = [...pieces.slice(0, target), ...replacement, ...pieces.slice(target + 1)];
   }
 
+  let order = 0;
+  for (const piece of pieces) {
+    if (piece.kind !== 'change') continue;
+    const item = located[piece.id];
+    if (item?.inline) {
+      Object.defineProperty(item, 'documentOrder', { value: order, enumerable: false });
+      order += 1;
+    }
+  }
+
   return { segments: pieces.map(toSegment), located };
 }
 
@@ -272,6 +290,7 @@ function findTextPiece(
  * Якорь ищется в тексте, каким его видит сервер на этом шаге (с уже принятыми правками).
  * 'not_found' — якоря нет или он не найден: сервер такое добавление не применит.
  * 'overlap' — якорь есть, но лежит внутри другой правки: сервер вставку применит, показать её точно нельзя.
+ * originOffset — реальная точка вставки в исходном тексте, а не конец якоря.
  */
 function placeAddition(
   pieces: Piece[],
@@ -290,7 +309,7 @@ function placeAddition(
   const at = newline === -1 ? hit.piece.text.length : newline;
   return {
     pieces: splitPiece(pieces, hit.index, at, change),
-    originOffset: hit.piece.origin + hit.start + anchor.length,
+    originOffset: hit.piece.origin + at,
   };
 }
 
