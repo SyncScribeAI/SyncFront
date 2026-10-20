@@ -54,7 +54,10 @@ const located = {
   'missing-2': loc(null),
 };
 
-function renderPanel(overrides: Partial<React.ComponentProps<typeof SuggestionsPanel>> = {}) {
+function renderPanel(
+  overrides: Partial<React.ComponentProps<typeof SuggestionsPanel>> = {},
+  container?: HTMLElement,
+) {
   const onSelect = vi.fn();
   const onDecide = vi.fn();
   render(
@@ -77,6 +80,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof SuggestionsP
       onDecide={onDecide}
       {...overrides}
     />,
+    { container },
   );
   return { onSelect, onDecide };
 }
@@ -123,16 +127,32 @@ describe('SuggestionsPanel', () => {
     expect(onSelect).toHaveBeenLastCalledWith('late');
   });
 
-  it.each(['input', 'textarea', 'select', 'button'])('не перехватывает клавиши в %s', (tag) => {
-    const { onSelect, onDecide } = renderPanel();
-    const element = document.createElement(tag);
-    document.body.appendChild(element);
-    fireEvent.keyDown(element, { key: 'ArrowDown' });
-    fireEvent.keyDown(element, { key: 'Enter' });
+  it('не перехватывает клавиши, когда панель скрыта', () => {
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(wrapper);
+    const { onSelect, onDecide } = renderPanel({}, wrapper);
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
     expect(onSelect).not.toHaveBeenCalled();
     expect(onDecide).not.toHaveBeenCalled();
-    element.remove();
+    wrapper.remove();
   });
+
+  it.each(['input', 'textarea', 'select', 'button', 'a'])(
+    'не перехватывает клавиши в %s',
+    (tag) => {
+      const { onSelect, onDecide } = renderPanel();
+      const element = document.createElement(tag);
+      if (element instanceof HTMLAnchorElement) element.href = '#test';
+      document.body.appendChild(element);
+      fireEvent.keyDown(element, { key: 'ArrowDown' });
+      fireEvent.keyDown(element, { key: 'Enter' });
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onDecide).not.toHaveBeenCalled();
+      element.remove();
+    },
+  );
 
   it('не перехватывает клавиши в contenteditable', () => {
     const { onSelect, onDecide } = renderPanel();
@@ -144,5 +164,35 @@ describe('SuggestionsPanel', () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(onDecide).not.toHaveBeenCalled();
     element.remove();
+  });
+
+  it('не перехватывает клавиши у элемента со встроенной клавиатурной семантикой', () => {
+    const { onSelect, onDecide } = renderPanel();
+    const element = document.createElement('div');
+    element.setAttribute('role', 'slider');
+    element.tabIndex = 0;
+    document.body.appendChild(element);
+    fireEvent.keyDown(element, { key: 'ArrowDown' });
+    fireEvent.keyDown(element, { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDecide).not.toHaveBeenCalled();
+    element.remove();
+  });
+
+  it('прокручивает выбранную карточку короткого списка в видимую область', () => {
+    const scrollIntoView = vi.fn();
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderPanel({ selectedId: 'late' });
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    } finally {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
   });
 });

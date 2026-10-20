@@ -52,11 +52,32 @@ interface SuggestionsPanelProps {
   header?: React.ReactNode;
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return Boolean(
     target.closest(
-      'input, textarea, select, button, [contenteditable]:not([contenteditable="false"])',
+      [
+        'input',
+        'textarea',
+        'select',
+        'button',
+        'a[href]',
+        'summary',
+        '[contenteditable]:not([contenteditable="false"])',
+        '[role="button"]',
+        '[role="link"]',
+        '[role="menuitem"]',
+        '[role="option"]',
+        '[role="radio"]',
+        '[role="checkbox"]',
+        '[role="switch"]',
+        '[role="slider"]',
+        '[role="spinbutton"]',
+        '[role="combobox"]',
+        '[role="listbox"]',
+        '[role="textbox"]',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(', '),
     ),
   );
 }
@@ -102,7 +123,13 @@ export function SuggestionsPanel({
         event.shiftKey
       )
         return;
-      if (isEditableTarget(event.target) || filtered.length === 0) return;
+      if (
+        panelRef.current?.closest('[aria-hidden="true"]') ||
+        event.isComposing ||
+        isInteractiveTarget(event.target) ||
+        filtered.length === 0
+      )
+        return;
 
       const selectedIndex = filtered.findIndex((suggestion) => suggestion.id === selectedId);
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -193,21 +220,42 @@ export function SuggestionsPanel({
       ) : isVirtualized(filtered.length) ? (
         <VirtualSuggestionList items={filtered} selectedId={selectedId} renderCard={renderCard} />
       ) : (
-        <ul className="space-y-3" aria-label="Список предложений">
-          {filtered.map((s) => (
-            <li key={s.id}>{renderCard(s)}</li>
-          ))}
-        </ul>
+        <SuggestionList items={filtered} selectedId={selectedId} renderCard={renderCard} />
       )}
     </aside>
   );
 }
 
-interface VirtualSuggestionListProps {
+interface SuggestionListProps {
   items: SuggestionResponse[];
   selectedId: string | null;
   renderCard: (s: SuggestionResponse) => React.ReactNode;
 }
+
+/** Короткий список: выбранная извне или с клавиатуры карточка остаётся в видимой области. */
+function SuggestionList({ items, selectedId, renderCard }: SuggestionListProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const selectedItem = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>('[data-suggestion-id]') ?? [],
+    ).find((element) => element.dataset.suggestionId === selectedId);
+    selectedItem?.scrollIntoView?.({ block: 'nearest' });
+  }, [items, selectedId]);
+
+  return (
+    <ul ref={listRef} className="space-y-3" aria-label="Список предложений">
+      {items.map((suggestion) => (
+        <li key={suggestion.id} data-suggestion-id={suggestion.id}>
+          {renderCard(suggestion)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type VirtualSuggestionListProps = SuggestionListProps;
 
 /** Длинный список: в DOM только видимые карточки плюс небольшой запас сверху и снизу. */
 function VirtualSuggestionList({ items, selectedId, renderCard }: VirtualSuggestionListProps) {
