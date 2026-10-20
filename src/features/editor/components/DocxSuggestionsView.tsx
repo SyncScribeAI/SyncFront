@@ -130,6 +130,11 @@ export function DocxSuggestionsView({
   const empty = !failed && !busy && file === undefined;
   const total = suggestions.length;
   const anchoredCount = report?.anchored.size ?? 0;
+  const missedAddCount = report
+    ? suggestions.filter(
+        (suggestion) => suggestion.change_type === 'add' && report.missed.has(suggestion.id),
+      ).length
+    : 0;
   // Причины непривязанных — в title строки отчёта: спайку нужна диагностика без консоли.
   const missedSummary = report
     ? Array.from(report.missed.entries())
@@ -163,6 +168,16 @@ export function DocxSuggestionsView({
           Показано в тексте: {anchoredCount} из {total}
           {anchoredCount < total ? ' — остальные доступны в панели справа' : ''}
         </p>
+      ) : null}
+      {missedAddCount > 0 ? (
+        <Alert variant="warning" className="mb-4">
+          <TriangleAlert aria-hidden />
+          <AlertDescription>
+            Не удалось определить место вставки для {missedAddCount} добавлений. Они доступны в
+            панели справа, но не показаны в документе: текст-якорь не найден или отсутствует текст
+            добавления.
+          </AlertDescription>
+        </Alert>
       ) : null}
       {/* Делегирование: якоря создаются вне React, их события ловим на контейнере. */}
       <div
