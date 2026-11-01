@@ -1,10 +1,12 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { queryKeys } from '@/api/queryKeys';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,7 +21,12 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { SourceDraft } from '@/domain/source/sourceDraft';
-import { createSourcesFromDrafts, SourceDraftForm, SourceTypeIcon } from '@/features/sources';
+import {
+  createSourcesFromDrafts,
+  SourceDraftForm,
+  SourceTypeIcon,
+  type SourceDraftFormHandle,
+} from '@/features/sources';
 import { getErrorMessage } from '@/lib/errors';
 
 import { useCreateProject } from '../hooks/useProjects';
@@ -37,6 +44,10 @@ interface CreateProjectDialogProps {
  */
 export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const sourceForm = useRef<SourceDraftFormHandle>(null);
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const create = useCreateProject();
   const [drafts, setDrafts] = useState<SourceDraft[]>([]);
   const [savingSources, setSavingSources] = useState(false);
@@ -45,11 +56,11 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
     defaultValues: { name: '', description: '' },
   });
 
-  const busy = create.isPending || savingSources;
+  const busy = submitting || create.isPending || savingSources;
   const nameFilled = form.watch('name').trim().length > 0;
 
   const close = (next: boolean) => {
-    if (busy) return;
+    if (busy || submittingRef.current) return;
     if (!next) {
       form.reset();
       setDrafts([]);
@@ -59,35 +70,52 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
   };
 
   const submit = form.handleSubmit(async ({ name, description }) => {
-    let projectId: string;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
-      const project = await create.mutateAsync({ name, description: description || null });
-      projectId = project.id;
-    } catch {
-      return;
-    }
+      const pending = await sourceForm.current?.collectPending();
+      if (!pending) return;
+      const sources = [...drafts, ...pending];
+      let projectId: string;
+      try {
+        const project = await create.mutateAsync({ name, description: description || null });
+        projectId = project.id;
+      } catch {
+        return;
+      }
 
-    if (drafts.length > 0) {
-      setSavingSources(true);
-      const { failed } = await createSourcesFromDrafts(projectId, { scope: 'project' }, drafts);
-      setSavingSources(false);
-      if (failed.length > 0) {
-        toast.warning('Проект создан, но часть источников не добавилась', {
-          description: failed.map((f) => `«${f.draft.name}»: ${f.message}`).join('\n'),
-          duration: 10_000,
-        });
+      if (sources.length > 0) {
+        setSavingSources(true);
+        const { failed } = await createSourcesFromDrafts(projectId, { scope: 'project' }, sources);
+        // Project creation invalidates too early: refresh counts after sources are persisted.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.sources.all }),
+        ]);
+        if (failed.length > 0) {
+          toast.warning('Проект создан, но часть источников не добавилась', {
+            description: failed.map((f) => `«${f.draft.name}»: ${f.message}`).join('\n'),
+            duration: 10_000,
+          });
+        } else {
+          toast.success('Проект создан');
+        }
       } else {
         toast.success('Проект создан');
       }
-    } else {
-      toast.success('Проект создан');
-    }
 
-    form.reset();
-    setDrafts([]);
-    create.reset();
-    onOpenChange(false);
-    navigate(`/projects/${projectId}`);
+      form.reset();
+      setDrafts([]);
+      create.reset();
+      onOpenChange(false);
+      navigate(`/projects/${projectId}`);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+      setSavingSources(false);
+    }
   });
 
   return (
@@ -117,7 +145,8 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
                 Базовые источники истины
               </h3>
               <p className="text-xs text-muted-foreground">
-                Используются при анализе каждого документа проекта. Можно добавить позже.
+                Используются при анализе каждого документа проекта. Заполненный источник сохранится
+                при создании проекта. Можно добавить позже.
               </p>
             </div>
             {drafts.length > 0 ? (
@@ -143,6 +172,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
             ) : null}
             <div className="rounded-md border border-dashed p-3">
               <SourceDraftForm
+                ref={sourceForm}
                 disabled={busy}
                 onSubmit={(draft) => {
                   setDrafts((list) => [...list, draft]);

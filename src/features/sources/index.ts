@@ -1,5 +1,5 @@
 export { ProjectSourceEditor } from './components/ProjectSourceEditor';
-export { SourceDraftForm } from './components/SourceDraftForm';
+export { SourceDraftForm, type SourceDraftFormHandle } from './components/SourceDraftForm';
 export { SourceList, type SourceListItem } from './components/SourceList';
 export { SourceTypeIcon } from './components/SourceTypeIcon';
 export {

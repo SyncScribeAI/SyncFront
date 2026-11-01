@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { FileText, Link2, StickyNote, Upload } from 'lucide-react';
-import { useId, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { forwardRef, useId, useImperativeHandle, useRef, useState } from 'react';
+import { useForm, type UseFormReturn } from 'react-hook-form';
 import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
@@ -49,126 +49,174 @@ const noteSchema = z.object({
     .max(NOTE_MAX_LENGTH, `Не длиннее ${NOTE_MAX_LENGTH.toLocaleString('ru-RU')} символов`),
 });
 
-/** Добавление одного источника: файл, ссылка или текстовая заметка. */
-export function SourceDraftForm({ onSubmit, disabled = false }: SourceDraftFormProps) {
-  return (
-    <Tabs defaultValue="file">
-      <TabsList aria-label="Тип источника">
-        <TabsTrigger value="file">
-          <FileText aria-hidden />
-          Файл
-        </TabsTrigger>
-        <TabsTrigger value="url">
-          <Link2 aria-hidden />
-          Ссылка
-        </TabsTrigger>
-        <TabsTrigger value="note">
-          <StickyNote aria-hidden />
-          Заметка
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="file">
-        <FileSourceForm onSubmit={onSubmit} disabled={disabled} />
-      </TabsContent>
-      <TabsContent value="url">
-        <UrlSourceForm onSubmit={onSubmit} disabled={disabled} />
-      </TabsContent>
-      <TabsContent value="note">
-        <NoteSourceForm onSubmit={onSubmit} disabled={disabled} />
-      </TabsContent>
-    </Tabs>
-  );
+export interface SourceDraftFormHandle {
+  /** Validate all unfinished tabs without clearing them; null means validation failed. */
+  collectPending: () => Promise<SourceDraft[] | null>;
 }
 
-function FileSourceForm({ onSubmit, disabled }: SourceDraftFormProps) {
-  const rules = useUploadRules();
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+/** Tab state lives here so switching tabs cannot discard an unfinished source. */
+export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftFormProps>(
+  function SourceDraftForm({ onSubmit, disabled = false }, ref) {
+    const [tab, setTab] = useState('file');
+    const rules = useUploadRules();
+    const inputId = useId();
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [file, setFile] = useState<File | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+    const urlForm = useForm<z.infer<typeof urlSchema>>({
+      resolver: zodResolver(urlSchema),
+      defaultValues: { url: '', name: '' },
+    });
+    const noteForm = useForm<z.infer<typeof noteSchema>>({
+      resolver: zodResolver(noteSchema),
+      defaultValues: { name: '', text: '' },
+    });
 
-  const pick = (next: File | undefined) => {
-    if (!next || !rules) return;
-    const result = validateUploadFile(next, rules);
-    setFile(result.ok ? next : null);
-    setError(result.ok ? null : result.message);
-  };
+    const fileDraft = (value: File): SourceDraft => ({
+      id: uuidV4(),
+      kind: 'file',
+      name: defaultSourceName({ file: value }),
+      file: value,
+    });
 
-  const submit = async () => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const accepted = await onSubmit({
-        id: uuidV4(),
-        kind: 'file',
-        name: defaultSourceName({ file }),
-        file,
-      });
-      if (accepted) {
-        setFile(null);
-        if (inputRef.current) inputRef.current.value = '';
+    useImperativeHandle(ref, () => ({
+      async collectPending() {
+        const pending: SourceDraft[] = [];
+        if (error) {
+          setTab('file');
+          return null;
+        }
+        if (file) pending.push(fileDraft(file));
+        const url = urlForm.getValues();
+        if (url.url.trim() || url.name.trim()) {
+          if (!(await urlForm.trigger())) {
+            setTab('url');
+            return null;
+          }
+          const values = urlSchema.parse(url);
+          pending.push({
+            id: uuidV4(),
+            kind: 'url',
+            url: values.url.trim(),
+            name: values.name || defaultSourceName({ url: values.url }),
+          });
+        }
+        const note = noteForm.getValues();
+        if (note.name.trim() || note.text.trim()) {
+          if (!(await noteForm.trigger())) {
+            setTab('note');
+            return null;
+          }
+          const values = noteSchema.parse(note);
+          pending.push({ id: uuidV4(), kind: 'note', ...values });
+        }
+        return pending;
+      },
+    }));
+
+    const pick = (next: File | undefined) => {
+      if (!next || !rules) return;
+      const result = validateUploadFile(next, rules);
+      setFile(result.ok ? next : null);
+      setError(result.ok ? null : result.message);
+    };
+
+    const submit = async () => {
+      if (!file || busy || disabled) return;
+      setBusy(true);
+      try {
+        if (await onSubmit(fileDraft(file))) {
+          setFile(null);
+          if (inputRef.current) inputRef.current.value = '';
+        }
+      } finally {
+        setBusy(false);
       }
-    } finally {
-      setBusy(false);
-    }
-  };
+    };
 
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled || !rules}
-          onClick={() => inputRef.current?.click()}
-        >
-          <Upload aria-hidden />
-          Выбрать файл
-        </Button>
-        <span className="min-w-0 truncate text-sm text-muted-foreground">
-          {file ? `${file.name} · ${formatBytes(file.size)}` : 'Файл не выбран'}
-        </span>
-        <input
-          id={inputId}
-          ref={inputRef}
-          type="file"
-          className="sr-only"
-          aria-label="Файл источника"
-          accept={rules ? acceptAttribute(rules.extensions) : undefined}
-          onChange={(event) => pick(event.target.files?.[0])}
-        />
-      </div>
-      {rules ? (
-        <p className="text-xs text-muted-foreground">
-          {rules.extensions.join(', ')}, до {rules.maxSizeMb} МБ
-        </p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      <Button
-        type="button"
-        size="sm"
-        disabled={!file || disabled}
-        loading={busy}
-        onClick={() => void submit()}
-      >
-        Добавить файл
-      </Button>
-    </div>
-  );
-}
+    return (
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList aria-label="Тип источника">
+          <TabsTrigger value="file" disabled={disabled || busy}>
+            <FileText aria-hidden />
+            Файл
+          </TabsTrigger>
+          <TabsTrigger value="url" disabled={disabled || busy}>
+            <Link2 aria-hidden />
+            Ссылка
+          </TabsTrigger>
+          <TabsTrigger value="note" disabled={disabled || busy}>
+            <StickyNote aria-hidden />
+            Заметка
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="file">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled || !rules}
+                onClick={() => inputRef.current?.click()}
+              >
+                <Upload aria-hidden />
+                Выбрать файл
+              </Button>
+              <span className="min-w-0 truncate text-sm text-muted-foreground">
+                {file ? `${file.name} · ${formatBytes(file.size)}` : 'Файл не выбран'}
+              </span>
+              <input
+                id={inputId}
+                ref={inputRef}
+                type="file"
+                disabled={disabled || busy || !rules}
+                className="sr-only"
+                aria-label="Файл источника"
+                accept={rules ? acceptAttribute(rules.extensions) : undefined}
+                onChange={(event) => pick(event.target.files?.[0])}
+              />
+            </div>
+            {rules ? (
+              <p className="text-xs text-muted-foreground">
+                {rules.extensions.join(', ')}, до {rules.maxSizeMb} МБ
+              </p>
+            ) : null}
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={!file || disabled || busy}
+              loading={busy}
+              onClick={() => void submit()}
+            >
+              Добавить файл
+            </Button>
+          </div>
+        </TabsContent>
+        <TabsContent value="url">
+          <UrlSourceForm onSubmit={onSubmit} disabled={disabled} form={urlForm} />
+        </TabsContent>
+        <TabsContent value="note">
+          <NoteSourceForm onSubmit={onSubmit} disabled={disabled} form={noteForm} />
+        </TabsContent>
+      </Tabs>
+    );
+  },
+);
 
-function UrlSourceForm({ onSubmit, disabled }: SourceDraftFormProps) {
-  const form = useForm<z.infer<typeof urlSchema>>({
-    resolver: zodResolver(urlSchema),
-    defaultValues: { url: '', name: '' },
-  });
-
+function UrlSourceForm({
+  onSubmit,
+  disabled,
+  form,
+}: SourceDraftFormProps & {
+  form: UseFormReturn<z.infer<typeof urlSchema>>;
+}) {
   const submit = form.handleSubmit(async ({ url, name }) => {
     const accepted = await onSubmit({
       id: uuidV4(),
@@ -206,12 +254,13 @@ function UrlSourceForm({ onSubmit, disabled }: SourceDraftFormProps) {
   );
 }
 
-function NoteSourceForm({ onSubmit, disabled }: SourceDraftFormProps) {
-  const form = useForm<z.infer<typeof noteSchema>>({
-    resolver: zodResolver(noteSchema),
-    defaultValues: { name: '', text: '' },
-  });
-
+function NoteSourceForm({
+  onSubmit,
+  disabled,
+  form,
+}: SourceDraftFormProps & {
+  form: UseFormReturn<z.infer<typeof noteSchema>>;
+}) {
   const submit = form.handleSubmit(async ({ name, text }) => {
     const accepted = await onSubmit({ id: uuidV4(), kind: 'note', name, text });
     if (accepted) form.reset();
