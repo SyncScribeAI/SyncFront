@@ -212,4 +212,51 @@ describe('SuggestionsPanel', () => {
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveTextContent('Позже');
   });
+
+  describe('группы одной фразы', () => {
+    const grouped = [
+      { ...suggestions[0]!, group_key: 'g1' },
+      { ...suggestions[2]!, group_key: 'g1' },
+      { ...suggestions[3]!, group_key: 'g1', origin: 'propagated' as const },
+    ];
+    const item = (text: string) =>
+      screen.getAllByRole('listitem').find((li) => li.textContent?.includes(text))!;
+
+    it('показывает «ещё N таких» по размеру группы сервера и метку автоматической находки', () => {
+      // Размер 5: часть группы на другой странице, локально загружены только три.
+      renderPanel({ suggestions: grouped, groupSizes: new Map([['g1', 5]]) });
+      expect(item('Раньше')).toHaveTextContent('ещё 4 таких');
+      expect(item('Та же позиция')).toHaveTextContent('Найдено автоматически');
+      expect(item('Раньше')).not.toHaveTextContent('Найдено автоматически');
+    });
+
+    it('без группы бейджа нет', () => {
+      renderPanel({ groupSizes: new Map() });
+      expect(screen.queryByText(/таких/)).not.toBeInTheDocument();
+    });
+
+    it('«Принять все (N)» считает нерешённые и передаёт ключ группы', () => {
+      const onDecideGroup = vi.fn();
+      renderPanel({
+        suggestions: grouped,
+        groupSizes: new Map([['g1', 3]]),
+        statusOf: (s) => (s.id === 'late' ? 'rejected' : 'pending'),
+        onDecideGroup,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Принять все (2)' }));
+      expect(onDecideGroup).toHaveBeenCalledWith('g1', 'accepted');
+      fireEvent.click(screen.getByRole('button', { name: 'Отклонить все' }));
+      expect(onDecideGroup).toHaveBeenCalledWith('g1', 'rejected');
+    });
+
+    it('если нерешённой осталась одна правка группы, групповых кнопок нет', () => {
+      renderPanel({
+        suggestions: grouped,
+        groupSizes: new Map([['g1', 3]]),
+        statusOf: (s) => (s.id === 'early' ? 'pending' : 'accepted'),
+        onDecideGroup: vi.fn(),
+      });
+      expect(screen.queryByRole('button', { name: /Принять все/ })).not.toBeInTheDocument();
+    });
+  });
 });

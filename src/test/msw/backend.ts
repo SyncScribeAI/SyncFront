@@ -221,6 +221,19 @@ function flagsOf(db: Db, doc: DbDocument) {
   return db.flags.filter((f) => f.document_id === doc.id).sort((a, b) => a.position - b.position);
 }
 
+/** Как SyncBack: группы по всем правкам анализа, а не по странице; группы из одной правки нет. */
+function groupsOf(list: SuggestionResponse[]) {
+  const groups = new Map<string, { group_key: string; size: number; pending: number }>();
+  for (const s of list) {
+    if (!s.group_key) continue;
+    const group = groups.get(s.group_key) ?? { group_key: s.group_key, size: 0, pending: 0 };
+    group.size += 1;
+    if (s.status === 'pending') group.pending += 1;
+    groups.set(s.group_key, group);
+  }
+  return Array.from(groups.values()).filter((group) => group.size > 1);
+}
+
 function suggestionsOf(db: Db, doc: DbDocument) {
   return db.suggestions.filter((s) => s.document_id === doc.id);
 }
@@ -535,6 +548,7 @@ export function backendHandlers(db: Db) {
         suggestions: list.slice(offset, offset + limit),
         suggestions_total: list.length,
         flags: withResults ? flagsOf(db, doc) : [],
+        suggestion_groups: groupsOf(list),
         counters: {
           ...countersOf(db, doc),
           flags_pending: withResults

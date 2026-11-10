@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EditorAggregateResponse, EditorBlockResponse, SuggestionResponse } from '@/api/types';
 import { isDocumentStatus, type DocumentStatus } from '@/domain/document/status';
 import { countPendingFlags, flagRanges } from '@/domain/editor/flag';
+import { groupIndex, groupSizes } from '@/domain/editor/groups';
 import { codePointToUtf16 } from '@/domain/editor/offsets';
 import { buildProjection, type Projection } from '@/domain/editor/projection';
 import {
@@ -22,6 +23,7 @@ import { getErrorMessage } from '@/lib/errors';
 
 import { isReviewConflict, useSaveReview } from '../hooks/useEditor';
 
+import { orderSuggestions } from './orderSuggestions';
 import { reviewScope, useReviewBuffer } from './reviewBuffer';
 
 export type ViewMode = 'original' | 'suggestions' | 'clean';
@@ -69,6 +71,7 @@ export function useEditorModel(
   const storedDecisions = useReviewBuffer((s) => s.decisions);
   const storedEdits = useReviewBuffer((s) => s.edits);
   const decide = useReviewBuffer((s) => s.decide);
+  const decideMany = useReviewBuffer((s) => s.decideMany);
   const undo = useReviewBuffer((s) => s.undo);
   const forget = useReviewBuffer((s) => s.forget);
   const clear = useReviewBuffer((s) => s.clear);
@@ -118,6 +121,14 @@ export function useEditorModel(
     [projection],
   );
 
+  // Порядок документа нужен группам: «следующее вхождение» идёт по тексту, а не по выдаче.
+  const groups = useMemo(
+    () => groupIndex(orderSuggestions(suggestions, projection.located)),
+    [suggestions, projection.located],
+  );
+  const serverGroups = editor.suggestion_groups;
+  const sizes = useMemo(() => groupSizes(serverGroups, groups), [serverGroups, groups]);
+
   const progress = useMemo(
     () => reviewProgress(counters, suggestions, decisions),
     [counters, suggestions, decisions],
@@ -161,6 +172,28 @@ export function useEditorModel(
     [decide, permissions.can_review],
   );
 
+  const byId = useMemo(() => new Map(suggestions.map((s) => [s.id, s])), [suggestions]);
+  /** Нерешённые (с учётом буфера) правки группы среди загруженных, в порядке документа. */
+  const pendingInGroup = useCallback(
+    (key: string): string[] =>
+      (groups.get(key) ?? []).filter((id) => {
+        const suggestion = byId.get(id);
+        return suggestion !== undefined && statusOf(suggestion) === 'pending';
+      }),
+    [groups, byId, statusOf],
+  );
+
+  // Решение группы — обычные решения в буфере по каждой нерешённой правке, а не bulk PATCH:
+  // так их можно переключить по одной, а сохранение идёт через PUT /review с проверкой версии.
+  const decideGroup = useCallback(
+    (key: string, decision: Decision) => {
+      if (!permissions.can_review) return;
+      const pending = pendingInGroup(key);
+      if (pending.length > 0) decideMany(pending, decision);
+    },
+    [permissions.can_review, pendingInGroup, decideMany],
+  );
+
   return {
     meta,
     status,
@@ -185,6 +218,10 @@ export function useEditorModel(
     saveError,
     saveDecisions,
     decideSuggestion,
+    groups,
+    groupSizes: sizes,
+    pendingInGroup,
+    decideGroup,
     undoBuffered: undo,
     clearBuffer: clear,
   };

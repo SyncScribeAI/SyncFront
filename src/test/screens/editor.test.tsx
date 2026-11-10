@@ -495,4 +495,91 @@ describe('Редактор правок', () => {
       expect(text.querySelector(`[data-flag-id="${flag.id}"]`)).toBeNull();
     });
   });
+
+  describe('повторяющиеся фразы', () => {
+    const PHRASE_TEXT = 'Срок — 10 дней.\nОтвет за 10 дней.\nЕщё 10 дней.\n';
+
+    function setupGroup() {
+      const project = addProject(db);
+      const doc = addDocument(db, project.id, {
+        name: 'guide.md',
+        format: 'markdown',
+        status: 'awaiting_approval',
+        currentJobId: 'job-1',
+        text: PHRASE_TEXT,
+      });
+      const starts: number[] = [];
+      for (
+        let at = PHRASE_TEXT.indexOf('10 дней');
+        at >= 0;
+        at = PHRASE_TEXT.indexOf('10 дней', at + 1)
+      ) {
+        starts.push(at);
+      }
+      // Сервер отдаёт правки не в порядке документа: навигация должна идти по тексту.
+      const [third, first, second] = [starts[2]!, starts[0]!, starts[1]!].map((start, index) =>
+        addSuggestion(db, doc, {
+          change_type: 'modify',
+          original_text: '10 дней',
+          suggested_text: '14 дней',
+          start_offset: start,
+          end_offset: start + '10 дней'.length,
+          position: index,
+          group_key: 'g-days',
+          origin: index === 0 ? 'propagated' : 'model',
+        }),
+      );
+      return { project, doc, first: first!, second: second!, third: third! };
+    }
+
+    it('«Принять все (N)» кладёт решение каждой правки в буфер и сохраняет обычным PUT', async () => {
+      const user = userEvent.setup();
+      const { project, doc, first, second, third } = setupGroup();
+      open(project.id, doc.id);
+      await documentText();
+      await user.click(within(list()).getAllByText('14 дней')[0]!);
+      const card = await screen.findByRole('region', { name: 'Карточка предложения' });
+      expect(within(card).getByText('ещё 2 таких')).toBeInTheDocument();
+      await user.click(within(card).getByRole('button', { name: 'Принять все (3)' }));
+
+      expect(screen.getByText(/^3 принято$/)).toBeInTheDocument();
+      expect(db.requests.some((r) => r.method === 'PATCH')).toBe(false);
+      await user.click(screen.getAllByRole('button', { name: /^Сохранить$/ })[0]!);
+      await waitFor(() => expect(reviewRequests()).toHaveLength(1));
+      const body = reviewRequests()[0]?.body as {
+        decisions: { suggestion_id: string; decision: string; edited_text?: string }[];
+      };
+      expect(body.decisions.map((d) => d.suggestion_id).sort()).toEqual(
+        [first.id, second.id, third.id].sort(),
+      );
+      expect(body.decisions.every((d) => d.decision === 'accepted' && !d.edited_text)).toBe(true);
+    });
+
+    it('«Следующее вхождение» идёт по порядку документа и по кругу', async () => {
+      const user = userEvent.setup();
+      const { project, doc, first, second } = setupGroup();
+      open(project.id, doc.id);
+      await documentText();
+      await user.click(within(list()).getAllByText('14 дней')[0]!);
+      const pressed = () =>
+        within(list())
+          .getAllByRole('button', { pressed: true })
+          .map((button) =>
+            button.closest('[data-suggestion-id]')?.getAttribute('data-suggestion-id'),
+          );
+      expect(pressed()).toEqual([first.id]);
+      await user.click(screen.getByRole('button', { name: 'Следующее вхождение' }));
+      await waitFor(() => expect(pressed()).toEqual([second.id]));
+    });
+
+    it('правку, найденную бэкендом, помечает «Найдено автоматически»', async () => {
+      const { project, doc, third } = setupGroup();
+      open(project.id, doc.id);
+      await documentText();
+      const item = within(list())
+        .getAllByRole('listitem')
+        .find((li) => li.getAttribute('data-suggestion-id') === third.id);
+      expect(item).toHaveTextContent('Найдено автоматически');
+    });
+  });
 });

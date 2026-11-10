@@ -41,3 +41,12 @@ export const ISSUE_TEXTS = {
   outside_section:
     'Фрагмент встречается раньше указанного раздела: при экспорте будет изменено первое вхождение.',
 } as const;
+
+export const GROUP_TEXTS = {
+  more: (count: number) => `ещё ${count} таких`,
+  acceptAll: (count: number) => `Принять все (${count})`,
+  rejectAll: 'Отклонить все',
+  next: 'Следующее вхождение',
+  propagated: 'Найдено автоматически',
+  hint: 'Та же фраза встречается в документе ещё раз. Решение для всех можно потом изменить по одной правке.',
+} as const;

@@ -1,6 +1,7 @@
 import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import {
   Check,
+  CheckCheck,
   CheckCircle2,
   FileText,
   Inbox,
@@ -29,9 +30,10 @@ import {
   LIST_OVERSCAN,
 } from '../model/suggestionList';
 import { orderSuggestions } from '../model/orderSuggestions';
-import { EMPTY_FILTER_TEXTS, ISSUE_TEXTS } from '../model/texts';
+import { EMPTY_FILTER_TEXTS, GROUP_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
+import { GroupBadge, PropagatedBadge } from './GroupBadges';
 import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 export type SuggestionFilter = 'pending' | 'decided' | 'all';
@@ -53,7 +55,13 @@ interface SuggestionsPanelProps {
   onUndo?: (id: string) => void;
   /** Карточка выбранной правки и блок завершения — над списком. */
   header?: React.ReactNode;
+  /** Размеры групп одной фразы по group_key (suggestion_groups сервера). */
+  groupSizes?: ReadonlyMap<string, number>;
+  /** Одно решение для всех нерешённых правок группы. */
+  onDecideGroup?: (groupKey: string, decision: PanelDecision) => void;
 }
+
+const NO_GROUPS: ReadonlyMap<string, number> = new Map();
 
 function shortText(s: SuggestionResponse): string {
   return (s.change_type === 'delete' ? s.original_text : s.suggested_text) ?? '';
@@ -71,6 +79,8 @@ export function SuggestionsPanel({
   onDecide,
   onUndo,
   header,
+  groupSizes = NO_GROUPS,
+  onDecideGroup,
 }: SuggestionsPanelProps) {
   const [filter, setFilter] = useState<SuggestionFilter>('pending');
   const panelRef = useRef<HTMLElement>(null);
@@ -85,6 +95,17 @@ export function SuggestionsPanel({
       }),
     [filter, located, statusOf, suggestions],
   );
+
+  // Нерешённые правки каждой группы — для подписи «Принять все (N)»; один проход по правкам.
+  const groupPending = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of suggestions) {
+      if (s.group_key && statusOf(s) === 'pending') {
+        counts.set(s.group_key, (counts.get(s.group_key) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [suggestions, statusOf]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -148,6 +169,9 @@ export function SuggestionsPanel({
       onSelect={selectSuggestion}
       onDecide={onDecide}
       onUndo={onUndo}
+      groupSize={s.group_key ? groupSizes.get(s.group_key) : undefined}
+      groupPending={s.group_key ? (groupPending.get(s.group_key) ?? 0) : 0}
+      onDecideGroup={onDecideGroup}
     />
   );
 
@@ -290,6 +314,9 @@ interface SuggestionCardProps {
   onSelect: (id: string) => void;
   onDecide?: (id: string, decision: PanelDecision) => void;
   onUndo?: (id: string) => void;
+  groupSize: number | undefined;
+  groupPending: number;
+  onDecideGroup?: (groupKey: string, decision: PanelDecision) => void;
 }
 
 /**
@@ -307,8 +334,15 @@ const SuggestionCard = memo(function SuggestionCard({
   onSelect,
   onDecide,
   onUndo,
+  groupSize,
+  groupPending,
+  onDecideGroup,
 }: SuggestionCardProps) {
   const showActions = selected && status === 'pending' && canReview && Boolean(onDecide);
+  const groupKey = s.group_key;
+  // Групповые кнопки имеют смысл, только если кроме этой правки есть ещё нерешённые.
+  const showGroupActions =
+    showActions && Boolean(groupKey) && groupPending > 1 && Boolean(onDecideGroup);
   const showUndo = status !== 'pending' && Boolean(onUndo);
   return (
     <div
@@ -326,6 +360,8 @@ const SuggestionCard = memo(function SuggestionCard({
         <span className="flex items-center gap-2">
           <ChangeTypeLabel type={s.change_type} />
           <LowConfidenceBadge score={s.confidence_score} />
+          <GroupBadge size={groupSize} />
+          <PropagatedBadge origin={s.origin} />
           {issue ? (
             <TriangleAlert
               className="size-4 shrink-0 text-amber-600"
@@ -389,6 +425,26 @@ const SuggestionCard = memo(function SuggestionCard({
             <X className="size-3.5" aria-hidden />
             Отклонить
           </button>
+          {showGroupActions && groupKey ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onDecideGroup?.(groupKey, 'accepted')}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <CheckCheck className="size-3.5" aria-hidden />
+                {GROUP_TEXTS.acceptAll(groupPending)}
+              </button>
+              <button
+                type="button"
+                onClick={() => onDecideGroup?.(groupKey, 'rejected')}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="size-3.5" aria-hidden />
+                {GROUP_TEXTS.rejectAll}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

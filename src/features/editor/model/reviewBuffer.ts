@@ -13,6 +13,12 @@ interface ReviewBufferStore {
   bind: (scope: string) => void;
   /** editedText — текст правки, изменённый пользователем перед принятием; без него старая правка стирается. */
   decide: (id: string, decision: Decision, editedText?: string) => void;
+  /**
+   * То же решение для нескольких правок одним обновлением — для группы одинаковых фраз.
+   * У каждой правки остаётся своё решение (его можно переключить отдельно), правки текста
+   * пользователя у них стираются, как у decide без editedText.
+   */
+  decideMany: (ids: readonly string[], decision: Decision) => void;
   undo: (id: string) => void;
   forget: (ids: readonly string[]) => void;
   clear: () => void;
@@ -32,6 +38,11 @@ export const useReviewBuffer = create<ReviewBufferStore>((set) => ({
     set((state) => ({
       decisions: { ...state.decisions, [id]: decision },
       edits: editedText ? { ...state.edits, [id]: editedText } : without(state.edits, [id]),
+    })),
+  decideMany: (ids, decision) =>
+    set((state) => ({
+      decisions: { ...state.decisions, ...Object.fromEntries(ids.map((id) => [id, decision])) },
+      edits: without(state.edits, ids),
     })),
   undo: (id) =>
     set((state) => ({

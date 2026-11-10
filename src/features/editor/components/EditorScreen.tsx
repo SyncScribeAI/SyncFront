@@ -28,6 +28,7 @@ import {
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { PartialAnalysisBanner, StartAnalysisButton } from '@/features/analysis';
 import { DocumentStatusBadge } from '@/features/documents';
+import { nextInGroup } from '@/domain/editor/groups';
 import { cn } from '@/lib/cn';
 import { getErrorMessage } from '@/lib/errors';
 import { useMediaQuery } from '@/lib/hooks/useMediaQuery';
@@ -306,6 +307,30 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       />
     ) : null;
 
+  const decideGroup = model.decideGroup;
+  const decideGroupFromPanel = useCallback(
+    (groupKey: string, decision: PanelDecision) => {
+      decideGroup(groupKey, decision);
+      setSelectedId(null);
+    },
+    [decideGroup],
+  );
+
+  const selectedGroupKey = selected?.group_key ?? null;
+  const selectedGroupIds = selectedGroupKey ? model.groups.get(selectedGroupKey) : undefined;
+  const selectedGroupSize = selectedGroupKey ? model.groupSizes.get(selectedGroupKey) : undefined;
+  const nextGroupId =
+    selected && selectedGroupIds ? nextInGroup(selectedGroupIds, selected.id) : null;
+  const selectedGroup =
+    selected && selectedGroupKey && selectedGroupIds && selectedGroupSize
+      ? {
+          size: selectedGroupSize,
+          pending: model.pendingInGroup(selectedGroupKey).length,
+          onDecide: (decision: PanelDecision) => decideGroupFromPanel(selectedGroupKey, decision),
+          onNext: nextGroupId ? () => selectFromPanel(nextGroupId) : null,
+        }
+      : undefined;
+
   const details = selected ? (
     <SuggestionDetails
       key={selected.id}
@@ -322,6 +347,7 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       }}
       onUndo={() => undo(selected.id)}
       onClose={() => setSelectedId(null)}
+      group={selectedGroup}
     />
   ) : null;
 
@@ -576,6 +602,8 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
               canReview={permissions.can_review}
               onDecide={decideFromPanel}
               onUndo={undo}
+              groupSizes={model.groupSizes}
+              onDecideGroup={decideGroupFromPanel}
               header={
                 <>
                   {completed ? (
