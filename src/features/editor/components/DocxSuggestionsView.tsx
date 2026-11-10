@@ -10,6 +10,7 @@ import {
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { DocumentBlock } from '@/domain/editor/block';
 import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion, SuggestionStatus } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
@@ -28,6 +29,8 @@ interface DocxSuggestionsViewProps {
   mode: InlineMode;
   suggestions: readonly EditorSuggestion[];
   sections: readonly DocumentSection[];
+  /** Блоки документа: по ним правки с границами встают в свой абзац. */
+  blocks: readonly DocumentBlock[];
   plainText: string;
   statusOf: (suggestion: EditorSuggestion) => SuggestionStatus;
   /** Новый текст правки с учётом правок пользователя. */
@@ -58,6 +61,7 @@ export function DocxSuggestionsView({
   mode,
   suggestions,
   sections,
+  blocks,
   plainText,
   statusOf,
   newTextOf,
@@ -81,7 +85,7 @@ export function DocxSuggestionsView({
     render(file, host).then(
       () => {
         if (cancelled) return;
-        setReport(anchorSuggestions(host, { suggestions, sections, plainText }));
+        setReport(anchorSuggestions(host, { suggestions, sections, plainText, blocks }));
         setState('ready');
       },
       () => {
@@ -91,7 +95,7 @@ export function DocxSuggestionsView({
     return () => {
       cancelled = true;
     };
-  }, [file, suggestions, sections, plainText, render]);
+  }, [file, suggestions, sections, plainText, blocks, render]);
 
   // Решения, режим, выделение и правки текста — только перерисовка якорей, без повторного рендера.
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { EditorAggregateResponse, SuggestionResponse } from '@/api/types';
+import type { EditorAggregateResponse, EditorBlockResponse, SuggestionResponse } from '@/api/types';
 import { isDocumentStatus, type DocumentStatus } from '@/domain/document/status';
 import { buildProjection, type Projection } from '@/domain/editor/projection';
 import {
@@ -48,6 +48,9 @@ export function useEditorModel(
   const { document: meta, suggestions, counters, permissions } = editor;
   const status: DocumentStatus = isDocumentStatus(meta.status) ? meta.status : 'draft';
   const content = editor.content ?? { plain_text: '', sections: [], blocks: [] };
+  // Сервер прежней версии blocks не присылает, хотя по схеме поле обязательно.
+  const rawBlocks = content.blocks as EditorBlockResponse[] | undefined;
+  const blocks = useMemo(() => rawBlocks ?? [], [rawBlocks]);
 
   const scope = reviewScope(meta.id, meta.current_analysis_job_id);
   const bind = useReviewBuffer((s) => s.bind);
@@ -151,6 +154,7 @@ export function useEditorModel(
     meta,
     status,
     content,
+    blocks,
     suggestions,
     counters,
     permissions,

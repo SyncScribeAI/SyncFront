@@ -217,3 +217,106 @@ describe('anchorSuggestions', () => {
     expect(original?.querySelector('b')?.textContent).toBe('b');
   });
 });
+
+describe('anchorSuggestions: правки с границами', () => {
+  const paragraphs = ['Срок 10 дней.', '', 'Срок 10 дней и Срок 10 дней.', '  Итог: Срок 10 дней.'];
+  // Как DocxParser: абзацы склеены «\n», блок — непустой абзац без краевых пробелов.
+  const plainText = paragraphs.join('\n');
+  const blocks = (() => {
+    let offset = 0;
+    return paragraphs.flatMap((text, index) => {
+      const start = offset + (text.length - text.trimStart().length);
+      offset += text.length + 1;
+      if (!text.trim()) return [];
+      return [
+        {
+          ref: `b${index}`,
+          type: 'paragraph' as const,
+          start_offset: start,
+          end_offset: start + text.trim().length,
+          editable: true,
+        },
+      ];
+    });
+  })();
+  const html = (prefix = '') =>
+    `${prefix}<p>Срок 10 дней.</p><p></p><table><tr><td><p>Срок 10 дней и Срок 10 дней.</p></td></tr></table><p>  Итог: Срок 10 дней.</p>`;
+
+  function spanned(occurrence: number, extra: Partial<EditorSuggestion> = {}): EditorSuggestion {
+    let start = -1;
+    for (let i = 0; i <= occurrence; i += 1) start = plainText.indexOf('Срок 10 дней', start + 1);
+    return s({
+      change_type: 'modify',
+      original_text: 'Срок 10 дней',
+      suggested_text: 'NEW',
+      start_offset: start,
+      end_offset: start + 'Срок 10 дней'.length,
+      ...extra,
+    });
+  }
+
+  const runWithBlocks = (root: HTMLElement, suggestions: EditorSuggestion[]) =>
+    anchorSuggestions(root, { suggestions, sections: [], plainText, blocks });
+
+  it('ставит каждое из повторов в свой абзац, в том числе два в одном', () => {
+    const root = host(html());
+    const items = [0, 1, 2, 3].map((n) => spanned(n));
+    const report = runWithBlocks(root, items);
+
+    expect(report.missed.size).toBe(0);
+    const owners = items.map((item) => anchorOf(root, item.id)?.closest('p')?.textContent);
+    expect(owners).toEqual([
+      'Срок 10 дней.',
+      'Срок 10 дней и Срок 10 дней.',
+      'Срок 10 дней и Срок 10 дней.',
+      '  Итог: Срок 10 дней.',
+    ]);
+    const cell = root.querySelector('td p');
+    expect(cell?.querySelectorAll(`[${ANCHOR_ATTR}]`)).toHaveLength(2);
+    expect(root.textContent).toBe('Срок 10 дней.Срок 10 дней и Срок 10 дней.  Итог: Срок 10 дней.');
+  });
+
+  it('находит абзац по тексту, если нумерация docx-preview разошлась с блоками', () => {
+    const root = host(html('<p>Колонтитул</p>'));
+    const last = spanned(3);
+    runWithBlocks(root, [last]);
+    expect(anchorOf(root, last.id)?.closest('p')?.textContent).toBe('  Итог: Срок 10 дней.');
+  });
+
+  it('пропускает правку внутри уже привязанной', () => {
+    const root = host(html());
+    const wide = spanned(1);
+    const start = (wide.start_offset ?? 0) + 'Срок '.length;
+    const inner = s({
+      change_type: 'modify',
+      original_text: '10 дней',
+      suggested_text: '5 дней',
+      start_offset: start,
+      end_offset: start + '10 дней'.length,
+    });
+    const report = runWithBlocks(root, [inner, wide]);
+    expect(report.anchored.has(wide.id)).toBe(true);
+    expect(report.missed.get(inner.id)).toBe('overlap');
+  });
+
+  it('добавления по границам идут за абзацем в порядке выдачи, без границ — перед ними', () => {
+    const root = host(html());
+    const first = spanned(1, { change_type: 'add', suggested_text: 'Абзац 1' });
+    const second = spanned(2, { change_type: 'add', suggested_text: 'Абзац 2' });
+    const legacy = s({ change_type: 'add', original_text: 'и Срок', suggested_text: 'Старый' });
+    runWithBlocks(root, [first, legacy, second]);
+
+    const cell = root.querySelector('td');
+    const order = Array.from(cell?.querySelectorAll(`[${ANCHOR_ATTR}]`) ?? []).map((element) =>
+      element.getAttribute(ANCHOR_ATTR),
+    );
+    expect(order).toEqual([legacy.id, first.id, second.id]);
+  });
+
+  it('при неверных границах ищет первое вхождение, как раньше', () => {
+    const root = host(html());
+    const stale = { ...spanned(3), start_offset: 1, end_offset: 5 };
+    runWithBlocks(root, [stale]);
+    expect(anchorOf(root, stale.id)?.closest('p')?.textContent).toBe('Срок 10 дней.');
+  });
+});

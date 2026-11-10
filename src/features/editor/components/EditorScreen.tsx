@@ -328,6 +328,7 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       mode={mode}
       suggestions={model.suggestions}
       sections={model.content.sections}
+      blocks={model.blocks}
       plainText={model.content.plain_text}
       statusOf={model.statusOf}
       newTextOf={model.newTextOf}

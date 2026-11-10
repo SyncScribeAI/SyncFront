@@ -29,6 +29,7 @@ function props(items: EditorSuggestion[] = suggestions) {
     mode: 'suggestions' as const,
     suggestions: items,
     sections,
+    blocks: [],
     plainText: 'якорь\nхвост раздела',
     statusOf,
     newTextOf,
