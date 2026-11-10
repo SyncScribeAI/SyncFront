@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion } from '@/domain/editor/suggestion';
 
-import { ANCHOR_ATTR, anchorSuggestions } from './docxAnchors';
+import { ANCHOR_ATTR, FLAG_ATTR, anchorFlags, anchorSuggestions } from './docxAnchors';
 
 let counter = 0;
 function s(
@@ -318,5 +318,49 @@ describe('anchorSuggestions: правки с границами', () => {
     const stale = { ...spanned(3), start_offset: 1, end_offset: 5 };
     runWithBlocks(root, [stale]);
     expect(anchorOf(root, stale.id)?.closest('p')?.textContent).toBe('Срок 10 дней.');
+  });
+});
+
+describe('anchorFlags', () => {
+  const plainText = 'Первый\nВторой\nПервый';
+  const blocks = [
+    { ref: 'b1', type: 'paragraph' as const, start_offset: 0, end_offset: 6, editable: true },
+    { ref: 'b2', type: 'paragraph' as const, start_offset: 7, end_offset: 13, editable: true },
+    { ref: 'b3', type: 'paragraph' as const, start_offset: 14, end_offset: 20, editable: true },
+  ];
+  const flag = (id: string, blockId: string, originalText = '') => ({
+    id,
+    block_id: blockId,
+    original_text: originalText,
+  });
+
+  it('помечает абзац блока по ref, учитывая пустые абзацы и одинаковый текст', () => {
+    const root = host('<p>Первый</p><p></p><p>Второй</p><p>Первый</p>');
+    const marked = anchorFlags(root, { flags: [flag('f', 'b3')], plainText, blocks });
+    const paragraphs = root.querySelectorAll('p');
+    expect(marked.get('f')).toBe(paragraphs[3]);
+    expect(paragraphs[3]?.getAttribute(FLAG_ATTR)).toBe('f');
+    expect(paragraphs[0]?.hasAttribute(FLAG_ATTR)).toBe(false);
+  });
+
+  it('без блока ищет абзац по original_text', () => {
+    const root = host('<p>Первый</p><p>Второй</p>');
+    const marked = anchorFlags(root, {
+      flags: [flag('f', 'unknown', 'Второй')],
+      plainText,
+      blocks,
+    });
+    expect(marked.get('f')?.textContent).toBe('Второй');
+  });
+
+  it('второй флаг на тот же абзац остаётся только в панели', () => {
+    const root = host('<p>Первый</p><p>Второй</p><p>Первый</p>');
+    const marked = anchorFlags(root, {
+      flags: [flag('a', 'b2'), flag('b', 'b2')],
+      plainText,
+      blocks,
+    });
+    expect(marked.has('a')).toBe(true);
+    expect(marked.has('b')).toBe(false);
   });
 });

@@ -2,10 +2,13 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EDITOR_TEXTS, EMPTY_FILTER_TEXTS } from '@/features/editor';
+import { http, HttpResponse } from 'msw';
+
+import { EDITOR_TEXTS, EMPTY_FILTER_TEXTS, FLAG_TEXTS } from '@/features/editor';
 import { DocumentPage } from '@/pages/DocumentPage';
 import {
   addDocument,
+  addFlag,
   addJob,
   addProject,
   addSuggestion,
@@ -361,6 +364,135 @@ describe('Редактор правок', () => {
         expect(db.requests.some((r) => r.path.endsWith('/analysis-jobs/job-1'))).toBe(true),
       );
       expect(screen.queryByText(/часть документа не проверена/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('флаги «проверьте вручную»', () => {
+    const BLOCKS = [
+      { ref: 'b1', type: 'heading' as const, start_offset: 0, end_offset: 7, editable: true },
+      { ref: 'b2', type: 'paragraph' as const, start_offset: 8, end_offset: 30, editable: true },
+      { ref: 'b3', type: 'paragraph' as const, start_offset: 31, end_offset: 45, editable: true },
+    ];
+    const FLAG_PATH = '/api/v1/projects/:projectId/documents/:documentId/flags/:flagId';
+
+    function setupFlag(status: 'awaiting_approval' | 'ready' = 'awaiting_approval') {
+      const base = setup(status);
+      base.doc.blocks = BLOCKS;
+      const flag = addFlag(db, base.doc, {
+        block_id: 'b2',
+        reason: 'sources_conflict',
+        original_text: 'Срок ответа — 10 дней.',
+        rationale: 'Wiki и регламент называют разные сроки.',
+        quotes: [{ source_name: 'Регламент', text: 'Срок ответа — 14 дней' }],
+      });
+      return { ...base, flag };
+    }
+
+    const section = () => screen.findByRole('heading', { name: /Проверьте вручную/ });
+    const flagList = () => screen.getByRole('list', { name: 'Список флагов' });
+    const flagPatches = () =>
+      db.requests.filter((r) => r.method === 'PATCH' && r.path.includes('/flags/'));
+
+    it('показывает флаг в панели со счётчиком и подсвечивает блок в тексте', async () => {
+      const { project, doc, flag } = setupFlag();
+      open(project.id, doc.id);
+      expect(await section()).toHaveTextContent('Проверьте вручную (1)');
+      expect(within(flagList()).getByText('Источники расходятся')).toBeInTheDocument();
+      const text = await documentText();
+      expect(text.querySelector(`[data-flag-id="${flag.id}"]`)).not.toBeNull();
+    });
+
+    it('без флагов раздела нет', async () => {
+      const { project, doc } = setup();
+      open(project.id, doc.id);
+      await documentText();
+      expect(screen.queryByRole('heading', { name: /Проверьте вручную/ })).not.toBeInTheDocument();
+    });
+
+    it('клик по блоку в тексте выбирает карточку флага и раскрывает цитаты', async () => {
+      const user = userEvent.setup();
+      const { project, doc, flag } = setupFlag();
+      open(project.id, doc.id);
+      const text = await documentText();
+      const mark = text.querySelector<HTMLElement>(`[data-flag-id="${flag.id}"]`);
+      expect(mark).not.toBeNull();
+      await user.click(mark!);
+      expect(
+        await screen.findByText('Wiki и регламент называют разные сроки.'),
+      ).toBeInTheDocument();
+      expect(within(flagList()).getByText(/Срок ответа — 14 дней/)).toBeInTheDocument();
+    });
+
+    it('«Просмотрено» сразу уменьшает счётчик и отправляет PATCH, «Вернуть» снимает отметку', async () => {
+      const user = userEvent.setup();
+      const { project, doc, flag } = setupFlag();
+      open(project.id, doc.id);
+      await section();
+      await user.click(within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }));
+      expect(await section()).toHaveTextContent('Проверьте вручную (0)');
+      await waitFor(() => expect(flagPatches()).toHaveLength(1));
+      expect(flagPatches()[0]?.body).toEqual({ status: 'reviewed' });
+      expect(db.flags[0]?.status).toBe('reviewed');
+      // Флаг не трогает буфер ревью: решений к сохранению не появилось.
+      expect(reviewRequests()).toHaveLength(0);
+
+      await user.click(await within(flagList()).findByRole('button', { name: FLAG_TEXTS.reopen }));
+      await waitFor(() => expect(db.flags[0]?.status).toBe('pending'));
+      expect(await section()).toHaveTextContent('Проверьте вручную (1)');
+      expect(flag.id).toBe(db.flags[0]?.id);
+    });
+
+    it('при ошибке сервера откатывает отметку', async () => {
+      const user = userEvent.setup();
+      const { project, doc } = setupFlag();
+      server.use(
+        http.patch(FLAG_PATH, () => HttpResponse.json({ detail: 'Сбой' }, { status: 500 })),
+      );
+      open(project.id, doc.id);
+      await section();
+      await user.click(within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }));
+      await waitFor(async () => expect(await section()).toHaveTextContent('Проверьте вручную (1)'));
+      expect(
+        within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }),
+      ).toBeEnabled();
+    });
+
+    it('404 — флаг прежнего анализа: сообщает и перечитывает редактор', async () => {
+      const user = userEvent.setup();
+      const { project, doc } = setupFlag();
+      server.use(
+        http.patch(FLAG_PATH, () => HttpResponse.json({ detail: 'not found' }, { status: 404 })),
+      );
+      open(project.id, doc.id);
+      await section();
+      const editorLoads = () =>
+        db.requests.filter((r) => r.method === 'GET' && r.path.includes('/editor')).length;
+      const before = editorLoads();
+      await user.click(within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }));
+      expect(await screen.findByText(FLAG_TEXTS.stale)).toBeInTheDocument();
+      await waitFor(() => expect(editorLoads()).toBeGreaterThan(before));
+    });
+
+    it('409 — документ вышел из ревью: сообщает «Документ не в ревью»', async () => {
+      const user = userEvent.setup();
+      const { project, doc } = setupFlag();
+      open(project.id, doc.id);
+      await section();
+      // Документ ушёл в повторный анализ, пока экран был открыт.
+      doc.status = 'in_progress';
+      await user.click(within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }));
+      expect(await screen.findByText(FLAG_TEXTS.notInReview)).toBeInTheDocument();
+    });
+
+    it('в готовом документе флаг можно отметить, а в «Чистовике» блок не подсвечен', async () => {
+      const { project, doc, flag } = setupFlag('ready');
+      open(project.id, doc.id);
+      await section();
+      expect(
+        within(flagList()).getByRole('button', { name: FLAG_TEXTS.markReviewed }),
+      ).toBeInTheDocument();
+      const text = await documentText();
+      expect(text.querySelector(`[data-flag-id="${flag.id}"]`)).toBeNull();
     });
   });
 });

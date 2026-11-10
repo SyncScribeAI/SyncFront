@@ -39,6 +39,7 @@ import { initialViewMode, useEditorModel, type ViewMode } from '../model/useEdit
 
 import { DocumentText } from './DocumentText';
 import { DocxSuggestionsView } from './DocxSuggestionsView';
+import { FlagsSection } from './FlagsSection';
 import { ExportButton } from './ExportButton';
 import { LeaveGuard } from './LeaveGuard';
 import { OriginalDocxView } from './OriginalDocxView';
@@ -98,6 +99,7 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
   const location = useLocation();
   const [mode, setMode] = useState<ViewMode>(() => initialViewMode(meta.view_mode));
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedFlagId, setSelectedFlagId] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState<boolean>(readPanelOpen);
   const resetReview = useResetReview(projectId, meta.id);
@@ -156,6 +158,37 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
     });
   }, []);
+
+  // Флаг выбран в тексте — показываем его карточку в панели; выбор в панели — прокручиваем к блоку.
+  // В «Чистовике» флагов нет, поэтому выбор из панели переключает в «Правки».
+  const selectFlagInText = useCallback((id: string) => {
+    setSelectedFlagId(id);
+    setPanelOpen(true);
+    requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>('[data-flag-card-id]')).find(
+        (element) => element.dataset.flagCardId === id,
+      );
+      target?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, []);
+
+  const selectFlagInPanel = useCallback((id: string) => {
+    setMode((current) => (current === 'clean' ? 'suggestions' : current));
+    setSelectedFlagId((current) => (current === id ? null : id));
+    requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>('[data-flag-id]')).find(
+        (element) => element.dataset.flagId === id,
+      );
+      target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    });
+  }, []);
+
+  // Флаг исчез после нового анализа — снимаем выбор, чтобы не держать ссылку на чужой id.
+  useEffect(() => {
+    if (selectedFlagId && !model.flags.some((flag) => flag.id === selectedFlagId)) {
+      setSelectedFlagId(null);
+    }
+  }, [selectedFlagId, model.flags]);
 
   // Быстрое решение кнопками в списке панели: то же, что из карточки, без правки текста.
   const decideFromPanel = useCallback(
@@ -305,6 +338,9 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       onSelect={setSelectedId}
       onUndo={undo}
       markdown={isMarkdown}
+      flags={model.flagMarks}
+      selectedFlagId={selectedFlagId}
+      onSelectFlag={selectFlagInText}
     />
   ) : (
     <p className="text-sm text-muted-foreground">Документ не содержит текста.</p>
@@ -334,6 +370,9 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       newTextOf={model.newTextOf}
       selectedId={selectedId}
       onSelect={setSelectedId}
+      flags={model.flags}
+      selectedFlagId={selectedFlagId}
+      onSelectFlag={selectFlagInText}
       fallback={plainText}
     />
   );
@@ -551,6 +590,15 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
                     reanalyze
                   )}
                   {detailsInPanel ? details : null}
+                  <FlagsSection
+                    projectId={projectId}
+                    documentId={meta.id}
+                    flags={model.flags}
+                    pending={model.flagsPending}
+                    canMark={status === 'awaiting_approval' || status === 'ready'}
+                    selectedId={selectedFlagId}
+                    onSelect={selectFlagInPanel}
+                  />
                 </>
               }
             />

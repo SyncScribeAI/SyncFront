@@ -10,13 +10,20 @@ import {
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { AnalysisFlagResponse } from '@/api/types';
 import type { DocumentBlock } from '@/domain/editor/block';
 import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion, SuggestionStatus } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
 
 import { decorateAnchor, type InlineMode } from '../lib/decorateAnchor';
-import { ANCHOR_ATTR, anchorSuggestions, type AnchorReport } from '../lib/docxAnchors';
+import {
+  ANCHOR_ATTR,
+  FLAG_ATTR,
+  anchorFlags,
+  anchorSuggestions,
+  type AnchorReport,
+} from '../lib/docxAnchors';
 import { isMarkerActivation, isSuggestionTarget } from '../lib/suggestionKeyboard';
 import { renderDocx } from '../lib/renderDocx';
 
@@ -37,12 +44,26 @@ interface DocxSuggestionsViewProps {
   newTextOf: (suggestion: EditorSuggestion) => string;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Флаги «проверьте вручную»: абзац помечается рамкой, в «Чистовике» — без разметки. */
+  flags?: readonly AnalysisFlagResponse[];
+  selectedFlagId?: string | null;
+  onSelectFlag?: (id: string) => void;
   /** Плоский текст с правками — если файл не загрузился или не отрисовался. */
   fallback: ReactNode;
   render?: (blob: Blob, container: HTMLElement) => Promise<void>;
 }
 
 type RenderState = 'idle' | 'rendering' | 'ready' | 'failed';
+
+const NO_FLAGS: readonly AnalysisFlagResponse[] = [];
+/** Классы помеченного абзаца; литералами, чтобы Tailwind их увидел. */
+const FLAG_CLASSES = ['border-l-2', 'border-dashed', 'border-sky-400', 'pl-2', 'cursor-pointer'];
+const FLAG_SELECTED_CLASSES = ['bg-sky-50', 'border-sky-600'];
+
+function flagOf(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLElement>(`[${FLAG_ATTR}]`);
+}
 
 function anchorOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
@@ -67,12 +88,21 @@ export function DocxSuggestionsView({
   newTextOf,
   selectedId,
   onSelect,
+  flags = NO_FLAGS,
+  selectedFlagId = null,
+  onSelectFlag,
   fallback,
   render = renderDocx,
 }: DocxSuggestionsViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<RenderState>('idle');
   const [report, setReport] = useState<AnchorReport | null>(null);
+  const [flagAnchors, setFlagAnchors] = useState<Map<string, HTMLElement>>(() => new Map());
+  // Отметка «Просмотрено» меняет только статус флага; перерисовывать файл из-за неё незачем.
+  // Поэтому рендер зависит от набора id, а сами флаги читаются из ref.
+  const flagsRef = useRef(flags);
+  flagsRef.current = flags;
+  const flagKey = flags.map((flag) => flag.id).join('|');
 
   // Рендер и привязка: один раз на файл и набор правок (новый анализ — новый набор).
   useEffect(() => {
@@ -85,6 +115,8 @@ export function DocxSuggestionsView({
     render(file, host).then(
       () => {
         if (cancelled) return;
+        // Флаги — до правок: блоки сверяются по тексту абзацев, а правки его ещё не тронули.
+        setFlagAnchors(anchorFlags(host, { flags: flagsRef.current, plainText, blocks }));
         setReport(anchorSuggestions(host, { suggestions, sections, plainText, blocks }));
         setState('ready');
       },
@@ -95,7 +127,8 @@ export function DocxSuggestionsView({
     return () => {
       cancelled = true;
     };
-  }, [file, suggestions, sections, plainText, blocks, render]);
+    // flagKey — намеренно вместо flags: см. flagsRef.
+  }, [file, suggestions, sections, plainText, blocks, render, flagKey]);
 
   // Решения, режим, выделение и правки текста — только перерисовка якорей, без повторного рендера.
   useEffect(() => {
@@ -118,13 +151,31 @@ export function DocxSuggestionsView({
     }
   }, [report, suggestions, statusOf, newTextOf, selectedId, mode]);
 
+  useEffect(() => {
+    const visible = mode !== 'clean' && Boolean(onSelectFlag);
+    for (const flag of flags) {
+      const element = flagAnchors.get(flag.id);
+      if (!element) continue;
+      const selected = visible && flag.id === selectedFlagId;
+      for (const name of FLAG_CLASSES) element.classList.toggle(name, visible);
+      for (const name of FLAG_SELECTED_CLASSES) element.classList.toggle(name, selected);
+      element.classList.toggle('opacity-70', visible && flag.status === 'reviewed');
+      // role="button" на абзаце не ставим: правки внутри него перестали бы быть отдельными
+      // кнопками (isSuggestionTarget). С клавиатуры флаг выбирается из карточки в панели.
+    }
+  }, [flags, flagAnchors, selectedFlagId, mode, onSelectFlag]);
+
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     const marker = anchorOf(event.target);
     const id = marker?.dataset.suggestionId;
     if (id && marker && !event.defaultPrevented && isSuggestionTarget(event.target, marker)) {
       onSelect(id);
       hostRef.current?.focus({ preventScroll: true });
+      return;
     }
+    // Клик мимо правки внутри помеченного абзаца — выбор флага.
+    const flagId = mode === 'clean' || id ? undefined : flagOf(event.target)?.dataset.flagId;
+    if (flagId && onSelectFlag && !event.defaultPrevented) onSelectFlag(flagId);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || !isMarkerActivation(event.nativeEvent)) return;

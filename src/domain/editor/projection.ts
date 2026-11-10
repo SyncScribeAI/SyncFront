@@ -65,6 +65,11 @@ function locatedSuggestion(
 export interface TextSegment {
   kind: 'text';
   text: string;
+  /**
+   * Смещение начала в исходном тексте (UTF-16): по нему на текст накладываются флаги.
+   * Неперечисляемое, как originOffset, чтобы сравнение сегментов в тестах его не учитывало.
+   */
+  origin?: number;
 }
 
 export interface ChangeSegment {
@@ -422,7 +427,9 @@ function splitPiece(pieces: Piece[], index: number, at: number, change: ChangeSe
 }
 
 function toSegment(piece: Piece): Segment {
-  return piece.kind === 'text' ? { kind: 'text', text: piece.text } : piece;
+  if (piece.kind !== 'text') return piece;
+  const segment: TextSegment = { kind: 'text', text: piece.text };
+  return Object.defineProperty(segment, 'origin', { value: piece.origin, enumerable: false });
 }
 
 /**

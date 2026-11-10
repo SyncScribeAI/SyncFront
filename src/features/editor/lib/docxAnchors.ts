@@ -308,3 +308,46 @@ export function cloneChildren(element: HTMLElement): DocumentFragment {
   for (const child of Array.from(element.childNodes)) fragment.appendChild(child.cloneNode(true));
   return fragment;
 }
+
+export const FLAG_ATTR = 'data-flag-id';
+
+export interface FlagAnchorInput {
+  flags: readonly { id: string; block_id: string; original_text: string }[];
+  plainText: string;
+  blocks: readonly DocumentBlock[];
+}
+
+/**
+ * Помечает абзацы с флагами атрибутом `data-flag-id`. Абзац ищется так же, как для правок
+ * с границами: блок по ref, абзац DOM по номеру с проверкой текста; если блок не найден —
+ * первый абзац, содержащий original_text флага. На один абзац — один флаг: второй остаётся
+ * только в панели, чтобы клик по абзацу был однозначным.
+ * Вызывается до отрисовки правок: тогда тексты абзацев совпадают с исходными.
+ */
+export function anchorFlags(root: HTMLElement, input: FlagAnchorInput): Map<string, HTMLElement> {
+  const marked = new Map<string, HTMLElement>();
+  if (input.flags.length === 0) return marked;
+  const indexByRef = new Map(input.blocks.map((block, index) => [block.ref, index]));
+  const locator =
+    input.blocks.length > 0 ? blockLocator(root, input.plainText, input.blocks) : null;
+  let paragraphs: FlatBlock[] | null = null;
+  const taken = new Set<HTMLElement>();
+  for (const flag of input.flags) {
+    const index = indexByRef.get(flag.block_id);
+    let element =
+      index !== undefined && locator ? (locator.paragraphOf(index)?.element ?? null) : null;
+    if (!element) {
+      const needle = normalizeAddAnchor(flag.original_text).trim();
+      paragraphs ??= collectBlocks(root);
+      element = needle
+        ? (paragraphs.find((block) => normalizeAddAnchor(block.text).includes(needle))?.element ??
+          null)
+        : null;
+    }
+    if (!element || taken.has(element)) continue;
+    taken.add(element);
+    element.setAttribute(FLAG_ATTR, flag.id);
+    marked.set(flag.id, element);
+  }
+  return marked;
+}

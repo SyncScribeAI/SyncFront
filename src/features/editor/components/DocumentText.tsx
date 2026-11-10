@@ -1,12 +1,15 @@
 import { Check, Pencil, Undo2, X } from 'lucide-react';
-import { memo, useCallback, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 
+import type { FlagRange } from '@/domain/editor/flag';
 import type { ChangeSegment, Segment } from '@/domain/editor/projection';
 import { changeTypeMeta, decisionLabel, type ChangeType } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
 
+import { flagChunks, type FlagChunk } from '../lib/flagMarks';
 import { renderMarkdownText } from '../lib/markdownLite';
 import { isMarkerActivation, isSuggestionTarget } from '../lib/suggestionKeyboard';
+import { FLAG_TEXTS } from '../model/texts';
 import type { ViewMode } from '../model/useEditorModel';
 
 interface DocumentTextProps {
@@ -19,7 +22,13 @@ interface DocumentTextProps {
   onUndo?: (id: string) => void;
   /** Документ в формате Markdown: обычный текст размечается заголовками, списками и т. д. */
   markdown?: boolean;
+  /** Блоки с флагами «проверьте вручную»; в «Чистовике» не показываются. */
+  flags?: readonly FlagRange[];
+  selectedFlagId?: string | null;
+  onSelectFlag?: (id: string) => void;
 }
+
+const NO_FLAGS: readonly FlagRange[] = [];
 
 /**
  * Правка занимает абзац целиком, если слева и справа от неё — перенос строки
@@ -46,8 +55,20 @@ export function DocumentText({
   onSelect,
   onUndo,
   markdown = false,
+  flags = NO_FLAGS,
+  selectedFlagId = null,
+  onSelectFlag,
 }: DocumentTextProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // В «Оригинале» весь текст — один сегмент с началом 0.
+  const shown = useMemo<Segment[]>(
+    () => (mode === 'original' ? [{ kind: 'text', text: originalText, origin: 0 }] : segments),
+    [mode, originalText, segments],
+  );
+  const chunks = useMemo(
+    () => (mode === 'clean' || !onSelectFlag ? shown.map(() => null) : flagChunks(shown, flags)),
+    [mode, shown, flags, onSelectFlag],
+  );
   const selectSuggestion = useCallback(
     (id: string) => {
       onSelect(id);
@@ -63,45 +84,105 @@ export function DocumentText({
       ref={hostRef}
       tabIndex={-1}
     >
-      {mode === 'original'
-        ? markdown
-          ? renderMarkdownText(originalText, true)
-          : originalText
-        : segments.map((segment, index) =>
-            segment.kind === 'text' ? (
-              <TextPart
-                key={`t${index}`}
-                text={segment.text}
-                markdown={markdown}
-                atLineStart={index === 0}
-              />
-            ) : (
-              <ChangePart
-                key={segment.id}
-                segment={segment}
-                mode={mode}
-                block={segment.changeType === 'add' || occupiesParagraph(segments, index)}
-                selected={segment.id === selectedId}
-                onSelect={selectSuggestion}
-                onUndo={onUndo}
-              />
-            ),
-          )}
+      {shown.map((segment, index) =>
+        segment.kind === 'text' ? (
+          <TextPart
+            key={`t${index}`}
+            text={segment.text}
+            markdown={markdown}
+            atLineStart={index === 0}
+            chunks={chunks[index] ?? null}
+            selectedFlagId={selectedFlagId}
+            onSelectFlag={onSelectFlag}
+          />
+        ) : mode === 'original' ? null : (
+          <ChangePart
+            key={segment.id}
+            segment={segment}
+            mode={mode}
+            block={segment.changeType === 'add' || occupiesParagraph(segments, index)}
+            selected={segment.id === selectedId}
+            onSelect={selectSuggestion}
+            onUndo={onUndo}
+          />
+        ),
+      )}
     </div>
   );
 }
 
-const TextPart = memo(function TextPart({
-  text,
-  markdown,
-  atLineStart,
-}: {
+interface TextPartProps {
   text: string;
   markdown: boolean;
   atLineStart: boolean;
-}) {
-  return <>{markdown ? renderMarkdownText(text, atLineStart) : text}</>;
-});
+  chunks: FlagChunk[] | null;
+  selectedFlagId: string | null;
+  onSelectFlag: ((id: string) => void) | undefined;
+}
+
+const chunksKey = (chunks: FlagChunk[] | null) =>
+  chunks ? chunks.map((chunk) => `${chunk.flagId ?? ''}:${chunk.text.length}`).join('|') : '';
+
+const ownsFlag = (chunks: FlagChunk[] | null, id: string | null) =>
+  id !== null && Boolean(chunks?.some((chunk) => chunk.flagId === id));
+
+const TextPart = memo(
+  function TextPart({
+    text,
+    markdown,
+    atLineStart,
+    chunks,
+    selectedFlagId,
+    onSelectFlag,
+  }: TextPartProps) {
+    const render = (part: string, lineStart: boolean) =>
+      markdown ? renderMarkdownText(part, lineStart) : part;
+    if (!chunks || !onSelectFlag) return <>{render(text, atLineStart)}</>;
+    return (
+      <>
+        {chunks.map((chunk, index) => {
+          const lineStart =
+            index === 0 ? atLineStart : (chunks[index - 1]?.text.endsWith('\n') ?? false);
+          if (chunk.flagId === null)
+            return <span key={index}>{render(chunk.text, lineStart)}</span>;
+          const id = chunk.flagId;
+          return (
+            <mark
+              key={index}
+              role="button"
+              tabIndex={0}
+              aria-label={FLAG_TEXTS.sectionTitle}
+              aria-pressed={id === selectedFlagId}
+              data-flag-id={id}
+              onClick={() => onSelectFlag(id)}
+              onKeyDown={(event) => {
+                if (isMarkerActivation(event.nativeEvent)) {
+                  event.preventDefault();
+                  onSelectFlag(id);
+                }
+              }}
+              className={cn(
+                // Не цвета changeTypeMeta: флаг — не правка, у него пунктирная рамка слева.
+                'cursor-pointer rounded-sm border-l-2 border-dashed border-sky-500 bg-sky-50/70 box-decoration-clone pl-1 text-inherit outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                id === selectedFlagId && 'ring-2 ring-sky-500 ring-offset-1',
+              )}
+            >
+              {render(chunk.text, lineStart)}
+            </mark>
+          );
+        })}
+      </>
+    );
+  },
+  (prev, next) =>
+    prev.text === next.text &&
+    prev.markdown === next.markdown &&
+    prev.atLineStart === next.atLineStart &&
+    prev.onSelectFlag === next.onSelectFlag &&
+    chunksKey(prev.chunks) === chunksKey(next.chunks) &&
+    ownsFlag(prev.chunks, prev.selectedFlagId) === ownsFlag(next.chunks, next.selectedFlagId) &&
+    (!ownsFlag(next.chunks, next.selectedFlagId) || prev.selectedFlagId === next.selectedFlagId),
+);
 
 interface ChangePartProps {
   segment: ChangeSegment;

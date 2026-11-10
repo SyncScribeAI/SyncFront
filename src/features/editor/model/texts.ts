@@ -17,6 +17,16 @@ export const EDITOR_TEXTS = {
   lowConfidence: 'Проверьте внимательно',
 } as const;
 
+export const FLAG_TEXTS = {
+  sectionTitle: 'Проверьте вручную',
+  markReviewed: 'Просмотрено',
+  reopen: 'Вернуть',
+  reviewedLabel: 'Просмотрено',
+  notInReview: 'Документ не в ревью',
+  stale: 'Флаг относится к прежнему анализу. Список обновлён.',
+  hint: 'ИИ не предложил правку, но просит сверить фрагмент с источниками. На статус и экспорт не влияет.',
+} as const;
+
 export const EMPTY_FILTER_TEXTS = {
   pending: 'Нет предложений на рассмотрении.',
   decided: 'Пока нет рассмотренных предложений.',
