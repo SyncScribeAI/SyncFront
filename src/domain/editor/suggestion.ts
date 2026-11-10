@@ -13,6 +13,17 @@ export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number];
 export const SUGGESTION_ORIGINS = ['model', 'propagated'] as const;
 export type SuggestionOrigin = (typeof SUGGESTION_ORIGINS)[number];
 
+/**
+ * Ниже этого порога правку стоит проверить внимательнее. API порог не отдаёт: значение
+ * повторяет настройку SyncBack SUGGESTION_LOW_CONFIDENCE_THRESHOLD по умолчанию.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 0.7;
+
+/** null — модель уверенность не указала, тогда и предупреждать не о чем. */
+export function isLowConfidence(score: number | null | undefined): boolean {
+  return typeof score === 'number' && score < LOW_CONFIDENCE_THRESHOLD;
+}
+
 export type Decision = Exclude<SuggestionStatus, 'pending'>;
 
 export interface ChangeTypeMeta {

@@ -19,6 +19,7 @@ import { SourcePreviewDialog } from '@/features/sources';
 import { EDITOR_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
+import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 interface SuggestionDetailsProps {
   suggestion: SuggestionResponse;
@@ -145,7 +146,10 @@ export function SuggestionDetails({
           )}
           <p>{suggestion.rationale ?? 'ИИ не указал обоснование.'}</p>
           {confidence !== null ? (
-            <p className="text-xs text-muted-foreground">Уверенность ИИ: {confidence}%</p>
+            <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              Уверенность ИИ: {confidence}%
+              <LowConfidenceBadge score={suggestion.confidence_score} />
+            </p>
           ) : null}
         </div>
 

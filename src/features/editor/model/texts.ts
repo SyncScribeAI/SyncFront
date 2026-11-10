@@ -14,6 +14,7 @@ export const EDITOR_TEXTS = {
   deleteMessage: 'Выбранный фрагмент будет удалён.',
   // Добавление вставляется только по якорю (SyncBack#78); без него — ISSUE_TEXTS.not_found.
   addAfterAnchor: 'Будет вставлено сразу после указанного фрагмента.',
+  lowConfidence: 'Проверьте внимательно',
 } as const;
 
 export const EMPTY_FILTER_TEXTS = {

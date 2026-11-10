@@ -32,6 +32,7 @@ import { orderSuggestions } from '../model/orderSuggestions';
 import { EMPTY_FILTER_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
+import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 export type SuggestionFilter = 'pending' | 'decided' | 'all';
 export type PanelDecision = Exclude<SuggestionStatus, 'pending'>;
@@ -324,6 +325,7 @@ const SuggestionCard = memo(function SuggestionCard({
       >
         <span className="flex items-center gap-2">
           <ChangeTypeLabel type={s.change_type} />
+          <LowConfidenceBadge score={s.confidence_score} />
           {issue ? (
             <TriangleAlert
               className="size-4 shrink-0 text-amber-600"

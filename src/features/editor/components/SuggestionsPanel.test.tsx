@@ -198,4 +198,18 @@ describe('SuggestionsPanel', () => {
       else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
   });
+
+  it('помечает правку с уверенностью ниже порога и не помечает без оценки', () => {
+    renderPanel({
+      suggestions: [
+        { ...suggestions[0]!, confidence_score: 0.5 },
+        { ...suggestions[2]!, confidence_score: 0.9 },
+        suggestions[3]!,
+      ],
+    });
+    const items = screen.getAllByRole('listitem');
+    const marked = items.filter((item) => item.textContent?.includes('Проверьте внимательно'));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent('Позже');
+  });
 });
