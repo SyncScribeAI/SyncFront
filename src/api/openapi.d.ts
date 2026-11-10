@@ -405,26 +405,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{project_id}/sources/{source_id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Source Download Url
-         * @description Ссылка на скачивание: presigned URL для файла, сам адрес для url-источника.
-         */
-        get: operations["get_source_download_url_api_v1_projects__project_id__sources__source_id__download_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/projects/{project_id}/sources/{source_id}/content": {
         parameters: {
             query?: never;
@@ -517,7 +497,6 @@ export interface paths {
          * Отменить задачу анализа
          * @description Отменить задачу анализа.
          *
-         *     C-1: DELETE /{job_id} — REST-правильный способ отмены.
          *     Возвращает 200 + AnalysisJobResponse с status=cancelled.
          */
         delete: operations["cancel_analysis_job_api_v1_projects__project_id__documents__document_id__analysis_jobs__job_id__delete"];
@@ -561,7 +540,7 @@ export interface paths {
         };
         /**
          * List Suggestions
-         * @description Список правок документа с опциональной фильтрацией по статусу.
+         * @description Список правок документа с опциональной фильтрацией по статусу и группе.
          */
         get: operations["list_suggestions_api_v1_projects__project_id__documents__document_id__suggestions_get"];
         put?: never;
@@ -682,14 +661,58 @@ export interface paths {
         put?: never;
         /**
          * Сбросить все изменения
-         * @description Сбросить все правки текущего анализа: статус suggestions → pending,
-         *     документ → AWAITING_APPROVAL.
+         * @description Сбросить все правки и отметки флагов текущего анализа: статус suggestions и
+         *     флагов → pending, документ → AWAITING_APPROVAL.
          */
         post: operations["reset_analysis_api_v1_projects__project_id__documents__document_id__editor_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/documents/{document_id}/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Flags
+         * @description Флаги текущего анализа в порядке ответа конвейера; без анализа — пустой список.
+         */
+        get: operations["list_flags_api_v1_projects__project_id__documents__document_id__flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/documents/{document_id}/flags/{flag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Flag
+         * @description Отметить флаг просмотренным или снять отметку.
+         *
+         *     Повтор того же статуса — 200 без нового события аудита. Флаг прежнего анализа — 404,
+         *     как правка прежнего анализа. Документ без результатов анализа — 409. Отметка не
+         *     меняет статус документа и не влияет на экспорт.
+         */
+        patch: operations["patch_flag_api_v1_projects__project_id__documents__document_id__flags__flag_id__patch"];
         trace?: never;
     };
     "/api/v1/dashboard": {
@@ -798,9 +821,36 @@ export interface paths {
         };
         /**
          * Llm Health
-         * @description Диагностика LLM-провайдера: только для администратора, раскрывает конфигурацию.
+         * @deprecated
+         * @description Диагностика LLM-провайдера прежнего анализа; замена — /system/analysis-health.
+         *
+         *     Только для администратора, раскрывает конфигурацию. Ответ не меняется, чтобы не
+         *     сломать тех, кто его уже читает.
          */
         get: operations["llm_health_api_v1_system_llm_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/analysis-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analysis Health
+         * @description Готов ли анализ: доступен ли конвейер и слушает ли кто-нибудь очередь задач.
+         *
+         *     Только для администратора: раскрывает провайдера и имя очереди. Обе проверки сетевые
+         *     и независимые, поэтому идут параллельно.
+         */
+        get: operations["analysis_health_api_v1_system_analysis_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -850,6 +900,100 @@ export interface components {
              * @description Повторный анализ готового документа требует force=true, иначе 409
              */
             force_required_for_ready: boolean;
+            /**
+             * Contract Version
+             * @description Версия контракта ML-конвейера, по которому идёт анализ; null — прежний анализ без контракта (блоки, группы правок и флаги не заполняются)
+             */
+            contract_version?: string | null;
+        };
+        /**
+         * AnalysisFlagResponse
+         * @description Место документа, которое конвейер просит проверить человеку: правки нет.
+         */
+        AnalysisFlagResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Analysis Job Id
+             * Format: uuid
+             */
+            analysis_job_id: string;
+            /**
+             * Block Id
+             * @description ref блока из content.blocks — по нему подсвечивается место
+             */
+            block_id: string;
+            /** Section Ref */
+            section_ref: string;
+            /**
+             * Reason
+             * @description Код причины от конвейера (например, source_conflict); неизвестный код показывается как «проверьте вручную»
+             */
+            reason: string;
+            /**
+             * Original Text
+             * @description Текст блока на момент анализа
+             */
+            original_text: string;
+            /** Rationale */
+            rationale?: string | null;
+            /**
+             * Quotes
+             * @default []
+             */
+            quotes: components["schemas"]["FlagQuoteResponse"][];
+            /**
+             * Position
+             * @description Порядок флага в ответе конвейера
+             */
+            position: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "reviewed";
+            /** Decided By */
+            decided_by?: string | null;
+            /** Decided At */
+            decided_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * AnalysisHealthResponse
+         * @description Готовность анализа: конвейер и воркеры очереди. Только для администратора.
+         */
+        AnalysisHealthResponse: {
+            /**
+             * Status
+             * @description down — конвейер недоступен или очередь никто не слушает; unknown — что-то проверить не удалось
+             * @enum {string}
+             */
+            status: "ok" | "down" | "unknown";
+            /**
+             * Provider
+             * @description ANALYSIS_PROVIDER
+             */
+            provider: string;
+            /** Contract Version */
+            contract_version: string | null;
+            /**
+             * Healthy
+             * @description Ответ проверки конвейера; null — проверить нечем без запуска анализа
+             */
+            healthy: boolean | null;
+            queue: components["schemas"]["AnalysisQueueHealth"];
         };
         /**
          * AnalysisJobConflictResponse
@@ -908,12 +1052,35 @@ export interface components {
              * @default false
              */
             partial_success: boolean;
+            /**
+             * Checked Blocks
+             * @description Сколько блоков проверил ML-конвейер; None — неизвестно
+             */
+            checked_blocks?: number | null;
+            /**
+             * Failed Blocks
+             * @description Сколько блоков конвейер не смог проверить; None — неизвестно
+             */
+            failed_blocks?: number | null;
         };
         /**
          * AnalysisJobStatusVO
          * @enum {string}
          */
         AnalysisJobStatusVO: "pending" | "dispatched" | "processing" | "success" | "partial_success" | "failed" | "cancelled";
+        /** AnalysisQueueHealth */
+        AnalysisQueueHealth: {
+            /**
+             * Name
+             * @description Очередь Celery, в которую уходит анализ
+             */
+            name: string;
+            /**
+             * Consumers
+             * @description Сколько воркеров слушают очередь; null — брокер не ответил
+             */
+            consumers: number | null;
+        };
         /**
          * AnalysisStateResponse
          * @description Объект, описывающий состояние последнего analysis job.
@@ -954,7 +1121,7 @@ export interface components {
         };
         /**
          * AttachSourcesResponse
-         * @description Ответ POST /documents/{id}/sources (R-1).
+         * @description Ответ POST /documents/{id}/sources.
          *
          *     Возвращает обновлённые метаданные документа и полный список
          *     прикреплённых к нему источников, чтобы фронт не делал дополнительный
@@ -1111,6 +1278,12 @@ export interface components {
             /** Relevance Trend */
             relevance_trend: components["schemas"]["TrendPoint"][];
         };
+        /**
+         * DocumentBlockType
+         * @description Тип блока документа; значения совпадают с block_type_enum в БД.
+         * @enum {string}
+         */
+        DocumentBlockType: "heading" | "paragraph" | "list_item" | "code" | "table" | "other";
         /** DocumentContentResponse */
         DocumentContentResponse: {
             /** Plain Text */
@@ -1248,8 +1421,36 @@ export interface components {
              * @default 0
              */
             suggestions_total: number;
-            counters: components["schemas"]["SuggestionCounters"];
+            counters: components["schemas"]["EditorCounters"];
             permissions: components["schemas"]["EditorPermissions"];
+            /**
+             * Suggestion Groups
+             * @description Группы правок текущего анализа независимо от страницы suggestions — для «ещё N таких» без загрузки всех страниц
+             */
+            suggestion_groups?: components["schemas"]["SuggestionGroupResponse"][];
+            /**
+             * Flags
+             * @description Флаги «проверьте вручную» текущего анализа целиком, в порядке ответа конвейера; число ограничено ANALYSIS_MAX_FLAGS
+             */
+            flags?: components["schemas"]["AnalysisFlagResponse"][];
+        };
+        /**
+         * EditorBlockResponse
+         * @description Блок документа без текста: текст фронт берёт из plain_text по смещениям,
+         *     чтобы ответ не дублировал документ целиком.
+         */
+        EditorBlockResponse: {
+            /** Ref */
+            ref: string;
+            type: components["schemas"]["DocumentBlockType"];
+            /** Start Offset */
+            start_offset: number;
+            /** End Offset */
+            end_offset: number;
+            /** Editable */
+            editable: boolean;
+            /** Heading Level */
+            heading_level?: number | null;
         };
         /** EditorContent */
         EditorContent: {
@@ -1260,6 +1461,33 @@ export interface components {
              * @default []
              */
             sections: components["schemas"]["DocumentSectionResponse"][];
+            /**
+             * Blocks
+             * @default []
+             */
+            blocks: components["schemas"]["EditorBlockResponse"][];
+        };
+        /**
+         * EditorCounters
+         * @description Счётчики редактора: к счётчикам правок добавлены флаги.
+         *
+         *     В списке документов флагов нет, поэтому поле не входит в SuggestionCounters.
+         */
+        EditorCounters: {
+            /** Total */
+            total: number;
+            /** Pending */
+            pending: number;
+            /** Accepted */
+            accepted: number;
+            /** Rejected */
+            rejected: number;
+            /**
+             * Flags Pending
+             * @description Флаги «проверьте вручную» без отметки; не влияют на переход документа в ready
+             * @default 0
+             */
+            flags_pending: number;
         };
         /** EditorDocumentMeta */
         EditorDocumentMeta: {
@@ -1323,6 +1551,19 @@ export interface components {
             same_format_only: boolean;
             /** Requires Status */
             requires_status: string;
+        };
+        /**
+         * FlagQuoteResponse
+         * @description Цитата источника, из-за которой место нужно проверить.
+         */
+        FlagQuoteResponse: {
+            /**
+             * Source Name
+             * @description Имя источника, как его вернул конвейер
+             */
+            source_name: string;
+            /** Text */
+            text: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1390,6 +1631,15 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+        };
+        /** PatchFlagRequest */
+        PatchFlagRequest: {
+            /**
+             * Status
+             * @description reviewed — место просмотрено; pending — снять отметку
+             * @enum {string}
+             */
+            status: "pending" | "reviewed";
         };
         /**
          * PatchSuggestionsRequest
@@ -1569,6 +1819,11 @@ export interface components {
             review_version: number;
             /** Suggestions Reset Count */
             suggestions_reset_count: number;
+            /**
+             * Flags Reset Count
+             * @default 0
+             */
+            flags_reset_count: number;
         };
         /** ReviewCapabilities */
         ReviewCapabilities: {
@@ -1710,16 +1965,6 @@ export interface components {
             /** Url */
             url: string;
         };
-        /** SourceDownloadResponse */
-        SourceDownloadResponse: {
-            /** Download Url */
-            download_url: string;
-            /**
-             * Expires In
-             * @description Срок жизни ссылки в секундах; None для url-источника — это его постоянный адрес
-             */
-            expires_in?: number | null;
-        };
         /** SourceResponse */
         SourceResponse: {
             /**
@@ -1790,6 +2035,18 @@ export interface components {
             edited_text?: string | null;
         };
         /**
+         * SuggestionGroupResponse
+         * @description Группа правок одной фразы: сколько в ней правок и сколько ещё не решено.
+         */
+        SuggestionGroupResponse: {
+            /** Group Key */
+            group_key: string;
+            /** Size */
+            size: number;
+            /** Pending */
+            pending: number;
+        };
+        /**
          * SuggestionResponse
          * @description Правка анализа в том виде, в каком её показывает редактор.
          */
@@ -1835,15 +2092,44 @@ export interface components {
              * @description Уверенность модели, 0–1
              */
             confidence_score?: number | null;
-            /** Block Id */
+            /**
+             * Sources
+             * @description Источники истины, на основании которых создана правка
+             */
+            sources?: components["schemas"]["SuggestionSourceResponse"][];
+            /**
+             * Block Id
+             * @description ref блока документа (как в editor.blocks), если известен
+             */
             block_id?: string | null;
             /**
              * Start Offset
-             * @description Начало фрагмента в тексте документа, если известно
+             * @description Начало original_text в plain_text документа, в символах Unicode (как смещения блоков редактора); None — правка не привязана к блоку
              */
             start_offset?: number | null;
-            /** End Offset */
+            /**
+             * End Offset
+             * @description Конец original_text, не включая
+             */
             end_offset?: number | null;
+            /**
+             * Position
+             * @description Номер правки в ответе конвейера внутри одного анализа
+             * @default 0
+             */
+            position: number;
+            /**
+             * Group Key
+             * @description Ключ группы правок одной фразы (тип, old_text и new_text без учёта регистра, пробелов и «ё/е»); None — у правки нет пары. Все правки группы: GET …/suggestions?group_key=…
+             */
+            group_key?: string | null;
+            /**
+             * Origin
+             * @description model — правка конвейера; propagated — найдена бэкендом по точному повтору
+             * @default model
+             * @enum {string}
+             */
+            origin: "model" | "propagated";
             /**
              * Status
              * @enum {string}
@@ -1858,6 +2144,31 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /**
+         * SuggestionSourceResponse
+         * @description Краткие данные источника, на котором основана правка.
+         */
+        SuggestionSourceResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "url" | "file";
+            /** Url */
+            url?: string | null;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2820,38 +3131,6 @@ export interface operations {
             };
         };
     };
-    get_source_download_url_api_v1_projects__project_id__sources__source_id__download_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                source_id: string;
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceDownloadResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_source_content_api_v1_projects__project_id__sources__source_id__content_get: {
         parameters: {
             query?: never;
@@ -3133,6 +3412,8 @@ export interface operations {
                 offset?: number;
                 /** @description Фильтр по статусу правки. Допустимые значения: pending, accepted, rejected */
                 status?: string | null;
+                /** @description Только правки одной группы (SuggestionResponse.group_key) */
+                group_key?: string | null;
             };
             header?: never;
             path: {
@@ -3393,6 +3674,75 @@ export interface operations {
             };
         };
     };
+    list_flags_api_v1_projects__project_id__documents__document_id__flags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisFlagResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_flag_api_v1_projects__project_id__documents__document_id__flags__flag_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                flag_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchFlagRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisFlagResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_dashboard_api_v1_dashboard_get: {
         parameters: {
             query?: never;
@@ -3533,6 +3883,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    analysis_health_api_v1_system_analysis_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisHealthResponse"];
                 };
             };
         };

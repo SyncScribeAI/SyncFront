@@ -10,6 +10,7 @@ import type {
   AnalysisJobResponse,
   DocumentListItem,
   DocumentResponse,
+  EditorBlockResponse,
   ProjectResponse,
   SourceResponse,
   SuggestionResponse,
@@ -33,6 +34,8 @@ interface DbDocument {
   /** Текст и разделы для /editor; review_version растёт с каждым PUT /review. */
   text: string;
   sections: { ref: string; start_offset: number; end_offset: number }[];
+  /** Блоки EditorContent.blocks; у документов прежнего конвейера их нет. */
+  blocks: EditorBlockResponse[];
   reviewVersion: number;
 }
 
@@ -104,6 +107,7 @@ export function addDocument(
     lastOpenedAt: null,
     text: '',
     sections: [],
+    blocks: [],
     reviewVersion: 0,
     ...patch,
   };
@@ -165,6 +169,9 @@ export function addSuggestion(
     block_id: null,
     start_offset: null,
     end_offset: null,
+    position: 0,
+    group_key: null,
+    origin: 'model',
     status: 'pending',
     decided_by: null,
     decided_at: null,
@@ -470,7 +477,7 @@ export function backendHandlers(db: Db) {
       const limit = Number(url.searchParams.get('suggestions_limit') ?? 50);
       const offset = Number(url.searchParams.get('suggestions_offset') ?? 0);
       const list = suggestionsOf(db, doc);
-      const content = { plain_text: doc.text, sections: doc.sections };
+      const content = { plain_text: doc.text, sections: doc.sections, blocks: doc.blocks };
       const withResults = doc.status === 'awaiting_approval' || doc.status === 'ready';
       return HttpResponse.json({
         document: {
@@ -488,7 +495,7 @@ export function backendHandlers(db: Db) {
         original_content: content,
         suggestions: list.slice(offset, offset + limit),
         suggestions_total: list.length,
-        counters: countersOf(db, doc),
+        counters: { ...countersOf(db, doc), flags_pending: 0 },
         permissions: {
           can_analyze: doc.status !== 'in_progress',
           can_review: doc.status === 'awaiting_approval',
@@ -608,6 +615,7 @@ export function backendHandlers(db: Db) {
           document_status: doc.status,
           review_version: doc.reviewVersion,
           suggestions_reset_count: list.length,
+          flags_reset_count: 0,
         });
       },
     ),

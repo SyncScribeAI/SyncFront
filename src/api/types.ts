@@ -5,7 +5,9 @@
  * а не молча в рантайме.
  */
 import type { DocumentStatus } from '@/domain/document/status';
-import type { ChangeType, SuggestionStatus } from '@/domain/editor/suggestion';
+import type { DocumentBlockType } from '@/domain/editor/block';
+import type { FlagStatus } from '@/domain/editor/flag';
+import type { ChangeType, SuggestionOrigin, SuggestionStatus } from '@/domain/editor/suggestion';
 
 import type { components, paths } from './openapi.d.ts';
 
@@ -36,24 +38,23 @@ export type SourcePage = Schemas['Page_SourceResponse_'];
 export type AnalysisJobResponse = Schemas['AnalysisJobResponse'];
 export type BulkAnalysisJobsResponse = Schemas['BulkAnalysisJobsResponse'];
 
-export interface SuggestionSourceResponse {
-  id: string;
-  project_id: string;
-  name: string;
-  type: 'url' | 'file';
-  url?: string | null;
-}
-
-/** Временно расширяет сгенерированный контракт до регенерации OpenAPI после SyncBack. */
-export type SuggestionResponse = Schemas['SuggestionResponse'] & {
-  sources?: SuggestionSourceResponse[];
-};
+export type SuggestionSourceResponse = Schemas['SuggestionSourceResponse'];
+export type SuggestionResponse = Schemas['SuggestionResponse'];
+export type SuggestionGroupResponse = Schemas['SuggestionGroupResponse'];
 export type EditorAggregateResponse = Schemas['EditorAggregateResponse'];
 export type ReviewSaveRequest = Schemas['ReviewSaveRequest'];
 export type ReviewSaveResponse = Schemas['ReviewSaveResponse'];
 export type PatchSuggestionsResponse = Schemas['PatchSuggestionsResponse'];
 export type ResetResponse = Schemas['ResetResponse'];
 export type EditorContent = Schemas['EditorContent'];
+export type EditorBlockResponse = Schemas['EditorBlockResponse'];
+export type EditorCounters = Schemas['EditorCounters'];
+
+export type AnalysisFlagResponse = Schemas['AnalysisFlagResponse'];
+export type FlagQuoteResponse = Schemas['FlagQuoteResponse'];
+export type PatchFlagRequest = Schemas['PatchFlagRequest'];
+
+export type AnalysisHealthResponse = Schemas['AnalysisHealthResponse'];
 
 export type DashboardResponse = Schemas['DashboardResponse'];
 export type AttentionDocumentItem = Schemas['AttentionDocumentItem'];
@@ -79,3 +80,13 @@ export const suggestionStatusContractMatches: Equal<
   SuggestionResponse['status'],
   SuggestionStatus
 > = true;
+export const suggestionOriginContractMatches: Equal<
+  SuggestionResponse['origin'],
+  SuggestionOrigin
+> = true;
+
+// Блоки документа и статусы флагов «проверьте вручную».
+export const blockTypeContractMatches: Equal<Schemas['DocumentBlockType'], DocumentBlockType> =
+  true;
+export const flagStatusContractMatches: Equal<AnalysisFlagResponse['status'], FlagStatus> = true;
+export const patchFlagStatusContractMatches: Equal<PatchFlagRequest['status'], FlagStatus> = true;

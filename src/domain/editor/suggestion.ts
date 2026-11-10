@@ -9,6 +9,10 @@ export type ChangeType = (typeof CHANGE_TYPES)[number];
 export const SUGGESTION_STATUSES = ['pending', 'accepted', 'rejected'] as const;
 export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number];
 
+/** model — правку предложил конвейер; propagated — бэкенд нашёл тот же фрагмент в другом месте. */
+export const SUGGESTION_ORIGINS = ['model', 'propagated'] as const;
+export type SuggestionOrigin = (typeof SUGGESTION_ORIGINS)[number];
+
 export type Decision = Exclude<SuggestionStatus, 'pending'>;
 
 export interface ChangeTypeMeta {
