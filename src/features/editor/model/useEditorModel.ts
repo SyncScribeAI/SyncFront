@@ -47,7 +47,7 @@ export function useEditorModel(
 ) {
   const { document: meta, suggestions, counters, permissions } = editor;
   const status: DocumentStatus = isDocumentStatus(meta.status) ? meta.status : 'draft';
-  const content = editor.content ?? { plain_text: '', sections: [] };
+  const content = editor.content ?? { plain_text: '', sections: [], blocks: [] };
 
   const scope = reviewScope(meta.id, meta.current_analysis_job_id);
   const bind = useReviewBuffer((s) => s.bind);
