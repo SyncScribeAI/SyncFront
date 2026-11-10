@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { AnalysisFlagResponse } from '@/api/types';
 import type { EditorSuggestion, SuggestionStatus } from '@/domain/editor/suggestion';
 
-import { ANCHOR_ATTR } from '../lib/docxAnchors';
+import { ANCHOR_ATTR, FLAG_ATTR } from '../lib/docxAnchors';
 
 import { DocxSuggestionsView } from './DocxSuggestionsView';
 
@@ -29,6 +30,7 @@ function props(items: EditorSuggestion[] = suggestions) {
     mode: 'suggestions' as const,
     suggestions: items,
     sections,
+    blocks: [],
     plainText: 'якорь\nхвост раздела',
     statusOf,
     newTextOf,
@@ -183,5 +185,54 @@ describe('DocxSuggestionsView', () => {
     await screen.findByTestId('docx-anchor-report');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(document.querySelector(`[${ANCHOR_ATTR}]`)).toBeNull();
+  });
+
+  describe('флаги', () => {
+    const flag = {
+      id: 'flag-1',
+      block_id: 'b2',
+      original_text: 'хвост раздела',
+      status: 'pending',
+    } as AnalysisFlagResponse;
+    const blocks = [
+      { ref: 'b1', type: 'paragraph' as const, start_offset: 0, end_offset: 5, editable: true },
+      { ref: 'b2', type: 'paragraph' as const, start_offset: 6, end_offset: 19, editable: true },
+    ];
+
+    it('помечает абзац флага и по клику мимо правки выбирает флаг', async () => {
+      const onSelectFlag = vi.fn();
+      const onSelect = vi.fn();
+      const { container } = render(
+        <DocxSuggestionsView
+          {...props()}
+          blocks={blocks}
+          onSelect={onSelect}
+          flags={[flag]}
+          selectedFlagId={null}
+          onSelectFlag={onSelectFlag}
+        />,
+      );
+      await addition();
+      const paragraph = container.querySelector<HTMLElement>(`[${FLAG_ATTR}="flag-1"]`);
+      expect(paragraph).toHaveTextContent('хвост раздела');
+      expect(paragraph).toHaveClass('border-dashed');
+      fireEvent.click(paragraph!);
+      expect(onSelectFlag).toHaveBeenCalledWith('flag-1');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('в «Чистовике» абзац флага не размечен', async () => {
+      const { container } = render(
+        <DocxSuggestionsView
+          {...props([{ ...add, status: 'accepted' }])}
+          mode="clean"
+          blocks={blocks}
+          flags={[flag]}
+          onSelectFlag={vi.fn()}
+        />,
+      );
+      await waitFor(() => expect(container.querySelector(`[${FLAG_ATTR}]`)).not.toBeNull());
+      expect(container.querySelector(`[${FLAG_ATTR}]`)).not.toHaveClass('border-dashed');
+    });
   });
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { analysisStateFromJob, isTerminalJobStatus, needsJobLookup } from './analysisState';
+import {
+  analysisStateFromJob,
+  isTerminalJobStatus,
+  needsJobLookup,
+  partialWarningText,
+} from './analysisState';
+import { analysisErrorHint } from './errorCodes';
 
 const job = { id: 'j1', error_code: null, error_message: null };
 
@@ -19,6 +25,7 @@ describe('analysisStateFromJob', () => {
       errorCode: 'LLM_UNAVAILABLE',
       errorMessage: 'Таймаут модели',
       canRetry: true,
+      warning: null,
     });
   });
 
@@ -38,6 +45,59 @@ describe('analysisStateFromJob', () => {
       phase: 'cancelled',
       canRetry: true,
     });
+  });
+});
+
+describe('partial_success', () => {
+  it('завершён с предупреждением: счётчики блоков и сообщение сервера', () => {
+    const state = analysisStateFromJob({
+      ...job,
+      status: 'partial_success',
+      error_code: 'PARTIAL_FAILURE',
+      error_message: 'недоступны источники: wiki',
+      checked_blocks: 40,
+      failed_blocks: 2,
+    });
+    expect(state.phase).toBe('completed');
+    expect(state.errorCode).toBeNull();
+    expect(state.warning).toEqual({
+      message: 'недоступны источники: wiki',
+      checked: 40,
+      failed: 2,
+    });
+    expect(partialWarningText(state.warning!)).toBe(
+      'Проверено 40 из 42 блоков, часть документа не проверена. недоступны источники: wiki',
+    );
+  });
+
+  it('без счётчиков остаётся только сообщение сервера', () => {
+    const state = analysisStateFromJob({
+      ...job,
+      status: 'partial_success',
+      error_message: 'недоступны источники: wiki',
+    });
+    expect(partialWarningText(state.warning!)).toBe('недоступны источники: wiki');
+  });
+
+  it('success без предупреждения', () => {
+    expect(analysisStateFromJob({ ...job, status: 'success' }).warning).toBeNull();
+  });
+});
+
+describe('analysisErrorHint: коды конвейера 2.0', () => {
+  it.each([
+    ['ML_INVALID_REQUEST', 'Ошибка интеграции с конвейером анализа. Сообщите администратору.'],
+    [
+      'SOURCES_UNAVAILABLE',
+      'Не удалось загрузить ни один источник. Проверьте ссылки и файлы источников.',
+    ],
+    ['SOURCE_NOT_FOUND', 'Источник удалён во время анализа. Запустите анализ ещё раз.'],
+  ])('%s', (code, hint) => {
+    expect(analysisErrorHint(code)).toBe(hint);
+  });
+
+  it('PARTIAL_FAILURE — не ошибка, подсказки нет', () => {
+    expect(analysisErrorHint('PARTIAL_FAILURE')).toBeUndefined();
   });
 });
 

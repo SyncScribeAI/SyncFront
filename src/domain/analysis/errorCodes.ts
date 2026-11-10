@@ -10,6 +10,9 @@ export const ANALYSIS_ERROR_CODES = [
   'DOCUMENT_PARSE_ERROR',
   'GENERATION_ERROR',
   'QUEUE_UNAVAILABLE',
+  'ML_INVALID_REQUEST',
+  'SOURCES_UNAVAILABLE',
+  'SOURCE_NOT_FOUND',
 ] as const;
 
 export type AnalysisErrorCode = (typeof ANALYSIS_ERROR_CODES)[number];
@@ -22,6 +25,11 @@ const HINTS: Record<AnalysisErrorCode, string> = {
   DOCUMENT_PARSE_ERROR: 'Не удалось разобрать документ. Проверьте, что файл не повреждён.',
   GENERATION_ERROR: 'Ошибка при формировании правок. Попробуйте запустить анализ ещё раз.',
   QUEUE_UNAVAILABLE: 'Очередь задач недоступна. Сообщите администратору и повторите позже.',
+  // Повтор не поможет: запрос к конвейеру собран неверно, это ошибка интеграции.
+  ML_INVALID_REQUEST: 'Ошибка интеграции с конвейером анализа. Сообщите администратору.',
+  SOURCES_UNAVAILABLE:
+    'Не удалось загрузить ни один источник. Проверьте ссылки и файлы источников.',
+  SOURCE_NOT_FOUND: 'Источник удалён во время анализа. Запустите анализ ещё раз.',
 };
 
 export function analysisErrorHint(code: string | null | undefined): string | undefined {

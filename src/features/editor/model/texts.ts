@@ -14,6 +14,17 @@ export const EDITOR_TEXTS = {
   deleteMessage: 'Выбранный фрагмент будет удалён.',
   // Добавление вставляется только по якорю (SyncBack#78); без него — ISSUE_TEXTS.not_found.
   addAfterAnchor: 'Будет вставлено сразу после указанного фрагмента.',
+  lowConfidence: 'Проверьте внимательно',
+} as const;
+
+export const FLAG_TEXTS = {
+  sectionTitle: 'Проверьте вручную',
+  markReviewed: 'Просмотрено',
+  reopen: 'Вернуть',
+  reviewedLabel: 'Просмотрено',
+  notInReview: 'Документ не в ревью',
+  stale: 'Флаг относится к прежнему анализу. Список обновлён.',
+  hint: 'ИИ не предложил правку, но просит сверить фрагмент с источниками. На статус и экспорт не влияет.',
 } as const;
 
 export const EMPTY_FILTER_TEXTS = {
@@ -29,4 +40,13 @@ export const ISSUE_TEXTS = {
   not_applicable: 'Правку нельзя применить автоматически: при экспорте она будет пропущена.',
   outside_section:
     'Фрагмент встречается раньше указанного раздела: при экспорте будет изменено первое вхождение.',
+} as const;
+
+export const GROUP_TEXTS = {
+  more: (count: number) => `ещё ${count} таких`,
+  acceptAll: (count: number) => `Принять все (${count})`,
+  rejectAll: 'Отклонить все',
+  next: 'Следующее вхождение',
+  propagated: 'Найдено автоматически',
+  hint: 'Та же фраза встречается в документе ещё раз. Решение для всех можно потом изменить по одной правке.',
 } as const;

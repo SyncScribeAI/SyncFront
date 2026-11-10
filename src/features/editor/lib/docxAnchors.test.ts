@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion } from '@/domain/editor/suggestion';
 
-import { ANCHOR_ATTR, anchorSuggestions } from './docxAnchors';
+import { ANCHOR_ATTR, FLAG_ATTR, anchorFlags, anchorSuggestions } from './docxAnchors';
 
 let counter = 0;
 function s(
@@ -215,5 +215,152 @@ describe('anchorSuggestions', () => {
     const original = anchor ? report.originals.get(anchor) : undefined;
     expect(original?.textContent).toBe('a b');
     expect(original?.querySelector('b')?.textContent).toBe('b');
+  });
+});
+
+describe('anchorSuggestions: правки с границами', () => {
+  const paragraphs = ['Срок 10 дней.', '', 'Срок 10 дней и Срок 10 дней.', '  Итог: Срок 10 дней.'];
+  // Как DocxParser: абзацы склеены «\n», блок — непустой абзац без краевых пробелов.
+  const plainText = paragraphs.join('\n');
+  const blocks = (() => {
+    let offset = 0;
+    return paragraphs.flatMap((text, index) => {
+      const start = offset + (text.length - text.trimStart().length);
+      offset += text.length + 1;
+      if (!text.trim()) return [];
+      return [
+        {
+          ref: `b${index}`,
+          type: 'paragraph' as const,
+          start_offset: start,
+          end_offset: start + text.trim().length,
+          editable: true,
+        },
+      ];
+    });
+  })();
+  const html = (prefix = '') =>
+    `${prefix}<p>Срок 10 дней.</p><p></p><table><tr><td><p>Срок 10 дней и Срок 10 дней.</p></td></tr></table><p>  Итог: Срок 10 дней.</p>`;
+
+  function spanned(occurrence: number, extra: Partial<EditorSuggestion> = {}): EditorSuggestion {
+    let start = -1;
+    for (let i = 0; i <= occurrence; i += 1) start = plainText.indexOf('Срок 10 дней', start + 1);
+    return s({
+      change_type: 'modify',
+      original_text: 'Срок 10 дней',
+      suggested_text: 'NEW',
+      start_offset: start,
+      end_offset: start + 'Срок 10 дней'.length,
+      ...extra,
+    });
+  }
+
+  const runWithBlocks = (root: HTMLElement, suggestions: EditorSuggestion[]) =>
+    anchorSuggestions(root, { suggestions, sections: [], plainText, blocks });
+
+  it('ставит каждое из повторов в свой абзац, в том числе два в одном', () => {
+    const root = host(html());
+    const items = [0, 1, 2, 3].map((n) => spanned(n));
+    const report = runWithBlocks(root, items);
+
+    expect(report.missed.size).toBe(0);
+    const owners = items.map((item) => anchorOf(root, item.id)?.closest('p')?.textContent);
+    expect(owners).toEqual([
+      'Срок 10 дней.',
+      'Срок 10 дней и Срок 10 дней.',
+      'Срок 10 дней и Срок 10 дней.',
+      '  Итог: Срок 10 дней.',
+    ]);
+    const cell = root.querySelector('td p');
+    expect(cell?.querySelectorAll(`[${ANCHOR_ATTR}]`)).toHaveLength(2);
+    expect(root.textContent).toBe('Срок 10 дней.Срок 10 дней и Срок 10 дней.  Итог: Срок 10 дней.');
+  });
+
+  it('находит абзац по тексту, если нумерация docx-preview разошлась с блоками', () => {
+    const root = host(html('<p>Колонтитул</p>'));
+    const last = spanned(3);
+    runWithBlocks(root, [last]);
+    expect(anchorOf(root, last.id)?.closest('p')?.textContent).toBe('  Итог: Срок 10 дней.');
+  });
+
+  it('пропускает правку внутри уже привязанной', () => {
+    const root = host(html());
+    const wide = spanned(1);
+    const start = (wide.start_offset ?? 0) + 'Срок '.length;
+    const inner = s({
+      change_type: 'modify',
+      original_text: '10 дней',
+      suggested_text: '5 дней',
+      start_offset: start,
+      end_offset: start + '10 дней'.length,
+    });
+    const report = runWithBlocks(root, [inner, wide]);
+    expect(report.anchored.has(wide.id)).toBe(true);
+    expect(report.missed.get(inner.id)).toBe('overlap');
+  });
+
+  it('добавления по границам идут за абзацем в порядке выдачи, без границ — перед ними', () => {
+    const root = host(html());
+    const first = spanned(1, { change_type: 'add', suggested_text: 'Абзац 1' });
+    const second = spanned(2, { change_type: 'add', suggested_text: 'Абзац 2' });
+    const legacy = s({ change_type: 'add', original_text: 'и Срок', suggested_text: 'Старый' });
+    runWithBlocks(root, [first, legacy, second]);
+
+    const cell = root.querySelector('td');
+    const order = Array.from(cell?.querySelectorAll(`[${ANCHOR_ATTR}]`) ?? []).map((element) =>
+      element.getAttribute(ANCHOR_ATTR),
+    );
+    expect(order).toEqual([legacy.id, first.id, second.id]);
+  });
+
+  it('при неверных границах ищет первое вхождение, как раньше', () => {
+    const root = host(html());
+    const stale = { ...spanned(3), start_offset: 1, end_offset: 5 };
+    runWithBlocks(root, [stale]);
+    expect(anchorOf(root, stale.id)?.closest('p')?.textContent).toBe('Срок 10 дней.');
+  });
+});
+
+describe('anchorFlags', () => {
+  const plainText = 'Первый\nВторой\nПервый';
+  const blocks = [
+    { ref: 'b1', type: 'paragraph' as const, start_offset: 0, end_offset: 6, editable: true },
+    { ref: 'b2', type: 'paragraph' as const, start_offset: 7, end_offset: 13, editable: true },
+    { ref: 'b3', type: 'paragraph' as const, start_offset: 14, end_offset: 20, editable: true },
+  ];
+  const flag = (id: string, blockId: string, originalText = '') => ({
+    id,
+    block_id: blockId,
+    original_text: originalText,
+  });
+
+  it('помечает абзац блока по ref, учитывая пустые абзацы и одинаковый текст', () => {
+    const root = host('<p>Первый</p><p></p><p>Второй</p><p>Первый</p>');
+    const marked = anchorFlags(root, { flags: [flag('f', 'b3')], plainText, blocks });
+    const paragraphs = root.querySelectorAll('p');
+    expect(marked.get('f')).toBe(paragraphs[3]);
+    expect(paragraphs[3]?.getAttribute(FLAG_ATTR)).toBe('f');
+    expect(paragraphs[0]?.hasAttribute(FLAG_ATTR)).toBe(false);
+  });
+
+  it('без блока ищет абзац по original_text', () => {
+    const root = host('<p>Первый</p><p>Второй</p>');
+    const marked = anchorFlags(root, {
+      flags: [flag('f', 'unknown', 'Второй')],
+      plainText,
+      blocks,
+    });
+    expect(marked.get('f')?.textContent).toBe('Второй');
+  });
+
+  it('второй флаг на тот же абзац остаётся только в панели', () => {
+    const root = host('<p>Первый</p><p>Второй</p><p>Первый</p>');
+    const marked = anchorFlags(root, {
+      flags: [flag('a', 'b2'), flag('b', 'b2')],
+      plainText,
+      blocks,
+    });
+    expect(marked.has('a')).toBe(true);
+    expect(marked.has('b')).toBe(false);
   });
 });

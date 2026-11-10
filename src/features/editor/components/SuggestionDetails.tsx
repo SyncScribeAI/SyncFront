@@ -1,5 +1,7 @@
 import {
+  ArrowDownToLine,
   Check,
+  CheckCheck,
   ExternalLink,
   FileText,
   MessageSquare,
@@ -16,9 +18,11 @@ import type { LocatedSuggestion } from '@/domain/editor/projection';
 import { decisionLabel, type Decision, type SuggestionStatus } from '@/domain/editor/suggestion';
 import { SourcePreviewDialog } from '@/features/sources';
 
-import { EDITOR_TEXTS, ISSUE_TEXTS } from '../model/texts';
+import { EDITOR_TEXTS, GROUP_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
+import { GroupBadge, PropagatedBadge } from './GroupBadges';
+import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 interface SuggestionDetailsProps {
   suggestion: SuggestionResponse;
@@ -34,6 +38,15 @@ interface SuggestionDetailsProps {
   onDecide: (decision: Decision, editedText?: string) => void;
   onUndo: () => void;
   onClose: () => void;
+  /** Группа той же фразы: размер по серверу и число нерешённых среди загруженных. */
+  group?: {
+    size: number;
+    pending: number;
+    /** Решение для всех нерешённых правок группы; edited_text этой карточки не копируется. */
+    onDecide: (decision: Decision) => void;
+    /** Следующая правка группы в порядке документа; null — переходить некуда. */
+    onNext: (() => void) | null;
+  };
 }
 
 function Fragment({ label, children }: { label: string; children: React.ReactNode }) {
@@ -64,6 +77,7 @@ export function SuggestionDetails({
   onDecide,
   onUndo,
   onClose,
+  group,
 }: SuggestionDetailsProps) {
   const { change_type: type } = suggestion;
   const [draft, setDraft] = useState(newText);
@@ -144,8 +158,17 @@ export function SuggestionDetails({
             <p className="font-medium text-muted-foreground">Источник недоступен</p>
           )}
           <p>{suggestion.rationale ?? 'ИИ не указал обоснование.'}</p>
+          {(group && group.size > 1) || suggestion.origin === 'propagated' ? (
+            <p className="flex flex-wrap items-center gap-2">
+              <GroupBadge size={group?.size} />
+              <PropagatedBadge origin={suggestion.origin} />
+            </p>
+          ) : null}
           {confidence !== null ? (
-            <p className="text-xs text-muted-foreground">Уверенность ИИ: {confidence}%</p>
+            <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              Уверенность ИИ: {confidence}%
+              <LowConfidenceBadge score={suggestion.confidence_score} />
+            </p>
           ) : null}
         </div>
 
@@ -190,6 +213,36 @@ export function SuggestionDetails({
             <TriangleAlert aria-hidden />
             <AlertDescription>{ISSUE_TEXTS[located.issue]}</AlertDescription>
           </Alert>
+        ) : null}
+
+        {group && group.size > 1 && (group.onNext || (canReview && group.pending > 1)) ? (
+          <div
+            className="space-y-2 rounded-md border border-dashed p-2.5"
+            aria-label="Группа правок"
+          >
+            {canReview && group.pending > 1 ? (
+              <p className="text-xs text-muted-foreground">{GROUP_TEXTS.hint}</p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {canReview && group.pending > 1 ? (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => group.onDecide('accepted')}>
+                    <CheckCheck aria-hidden />
+                    {GROUP_TEXTS.acceptAll(group.pending)}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => group.onDecide('rejected')}>
+                    {GROUP_TEXTS.rejectAll}
+                  </Button>
+                </>
+              ) : null}
+              {group.onNext ? (
+                <Button size="sm" variant="ghost" onClick={group.onNext}>
+                  <ArrowDownToLine aria-hidden />
+                  {GROUP_TEXTS.next}
+                </Button>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
         <div className="flex flex-wrap justify-end gap-2">

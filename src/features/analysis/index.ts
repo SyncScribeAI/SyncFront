@@ -1,4 +1,5 @@
 export { AnalysisProblem } from './components/AnalysisProblem';
+export { PartialAnalysisBanner } from './components/PartialAnalysisBanner';
 export { BulkAnalysisButton } from './components/BulkAnalysisButton';
 export {
   CANCEL_ANALYSIS_TEXT,

@@ -15,6 +15,15 @@ export interface AnalysisStateView {
   errorCode: string | null;
   errorMessage: string | null;
   canRetry: boolean;
+  /** Анализ завершён, но часть документа не проверена (partial_success). */
+  warning: AnalysisWarning | null;
+}
+
+export interface AnalysisWarning {
+  message: string | null;
+  /** Проверено и не проверено блоков; null, если сервер их не посчитал (прежний конвейер). */
+  checked: number | null;
+  failed: number | null;
 }
 
 export type AnalysisJobStatus =
@@ -36,6 +45,8 @@ interface JobLike {
   status: AnalysisJobStatus;
   error_code: string | null;
   error_message: string | null;
+  checked_blocks?: number | null;
+  failed_blocks?: number | null;
 }
 
 interface AnalysisLike {
@@ -56,6 +67,7 @@ export function analysisStateFromJob(job: JobLike): AnalysisStateView {
         errorCode: job.error_code ?? 'ANALYSIS_FAILED',
         errorMessage: job.error_message ?? 'Ошибка выполнения анализа',
         canRetry: true,
+        warning: null,
       };
     case 'cancelled':
       return {
@@ -64,6 +76,7 @@ export function analysisStateFromJob(job: JobLike): AnalysisStateView {
         errorCode: 'ANALYSIS_CANCELLED',
         errorMessage: job.error_message ?? 'Анализ отменён пользователем',
         canRetry: true,
+        warning: null,
       };
     case 'pending':
       return {
@@ -72,6 +85,7 @@ export function analysisStateFromJob(job: JobLike): AnalysisStateView {
         errorCode: null,
         errorMessage: null,
         canRetry: false,
+        warning: null,
       };
     case 'dispatched':
     case 'processing':
@@ -81,15 +95,30 @@ export function analysisStateFromJob(job: JobLike): AnalysisStateView {
         errorCode: null,
         errorMessage: null,
         canRetry: false,
+        warning: null,
       };
     case 'success':
-    case 'partial_success':
       return {
         jobId: job.id,
         phase: 'completed',
         errorCode: null,
         errorMessage: null,
         canRetry: true,
+        warning: null,
+      };
+    case 'partial_success':
+      // Правки сохранены и документ в ревью, поэтому это не ошибка: только предупреждение.
+      return {
+        jobId: job.id,
+        phase: 'completed',
+        errorCode: null,
+        errorMessage: null,
+        canRetry: true,
+        warning: {
+          message: job.error_message,
+          checked: job.checked_blocks ?? null,
+          failed: job.failed_blocks ?? null,
+        },
       };
   }
 }
@@ -101,7 +130,20 @@ export function analysisStateFromContract(analysis: AnalysisLike): AnalysisState
     errorCode: analysis.error_code ?? null,
     errorMessage: analysis.error_message ?? null,
     canRetry: analysis.can_retry ?? false,
+    // В analysis документа нет счётчиков блоков; предупреждение берётся из задачи.
+    warning: null,
   };
+}
+
+/**
+ * Текст предупреждения о частичной проверке. Всего блоков — проверенные плюс непроверенные.
+ * Без счётчиков остаётся только сообщение сервера.
+ */
+export function partialWarningText(warning: AnalysisWarning): string | null {
+  const { checked, failed } = warning;
+  if (checked === null || failed === null) return warning.message;
+  const summary = `Проверено ${checked} из ${checked + failed} блоков, часть документа не проверена.`;
+  return warning.message ? `${summary} ${warning.message}` : summary;
 }
 
 /**

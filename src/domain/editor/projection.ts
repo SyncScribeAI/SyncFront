@@ -3,14 +3,18 @@
  * поэтому «Правки» и «Чистовик» строятся здесь — по тем же правилам, что и
  * экспортёры SyncBack (TextExporter / DocxExporter), иначе чистовик и экспорт разойдутся:
  *
- * - принятые правки применяются по очереди в порядке ответа сервера (created_at, id),
- *   каждая — к уже изменённому тексту;
+ * - правки с границами (start_offset/end_offset, под которыми лежит original_text) применяются
+ *   первыми, одним проходом по исходному тексту, как text_edits.apply_edits: так каждое из
+ *   повторов одной фразы меняется на своём месте, а не в первом вхождении;
+ * - остальные правки применяются после них по очереди в порядке ответа сервера
+ *   (created_at, position, id), каждая — к уже изменённому тексту;
  * - modify/delete заменяют первое вхождение original_text во всём тексте;
  *   в docx вхождение ищется внутри одного абзаца, поэтому фрагмент с переводом строки не применится;
  * - add вставляется только по якорю — сразу после строки с original_text (SyncBack#78);
  *   без якоря или с ненайденным якорем сервер добавление не применит, место за модель не выбираем;
  * - новый текст правки берётся из newTextOf: отредактированный пользователем важнее текста ИИ.
  */
+import { codePointToUtf16, spansInUtf16, type OffsetMapper } from './offsets';
 import type { ChangeType, EditorSuggestion, SuggestionStatus } from './suggestion';
 
 export interface DocumentSection {
@@ -61,6 +65,11 @@ function locatedSuggestion(
 export interface TextSegment {
   kind: 'text';
   text: string;
+  /**
+   * Смещение начала в исходном тексте (UTF-16): по нему на текст накладываются флаги.
+   * Неперечисляемое, как originOffset, чтобы сравнение сегментов в тестах его не учитывало.
+   */
+  origin?: number;
 }
 
 export interface ChangeSegment {
@@ -109,30 +118,14 @@ function serverText(piece: Piece): string {
 }
 
 // DOC сервер экспортирует тем же DocxExporter, что и DOCX.
-const isDocx = (format: string) => ['docx', 'doc'].includes(format.toLowerCase());
+export const isDocx = (format: string) => ['docx', 'doc'].includes(format.toLowerCase());
 
-/**
- * Офсеты разделов сервер считает в кодовых точках Python, а строки JS — в UTF-16.
- * Без суррогатных пар они совпадают, иначе пересчитываем.
- */
+/** Разделы с офсетами в UTF-16 (см. offsets.ts). */
 export function sectionsInUtf16(
   text: string,
   sections: readonly DocumentSection[],
 ): DocumentSection[] {
-  if (!/[\uD800-\uDFFF]/.test(text)) return [...sections];
-  const toUtf16: number[] = [];
-  let unit = 0;
-  for (const char of text) {
-    toUtf16.push(unit);
-    unit += char.length;
-  }
-  toUtf16.push(unit);
-  const map = (offset: number) => toUtf16[Math.min(offset, toUtf16.length - 1)] ?? unit;
-  return sections.map((s) => ({
-    ...s,
-    start_offset: map(s.start_offset),
-    end_offset: map(s.end_offset),
-  }));
+  return spansInUtf16(sections, codePointToUtf16(text));
 }
 
 function changeOf(
@@ -153,11 +146,25 @@ function changeOf(
 export function buildProjection(input: ProjectionInput): Projection {
   const { text, format, suggestions, statusOf } = input;
   const newTextOf = input.newTextOf ?? ((s: EditorSuggestion) => s.suggested_text ?? '');
-  const sections = sectionsInUtf16(text, input.sections);
+  const toUtf16 = codePointToUtf16(text);
+  const sections = spansInUtf16(input.sections, toUtf16);
   const located: Record<string, LocatedSuggestion> = {};
-  let pieces: Piece[] = [{ kind: 'text', text, origin: 0 }];
 
+  const spans: AnchoredSpan[] = [];
+  const unanchored: EditorSuggestion[] = [];
   for (const suggestion of suggestions) {
+    const span = anchoredSpan(suggestion, text, isDocx(format), toUtf16);
+    if (span) spans.push(span);
+    else unanchored.push(suggestion);
+  }
+  let pieces = applyAnchored(
+    text,
+    spans,
+    (suggestion) => changeOf(suggestion, statusOf(suggestion), newTextOf(suggestion)),
+    located,
+  );
+
+  for (const suggestion of unanchored) {
     const status = statusOf(suggestion);
 
     if (suggestion.change_type === 'add') {
@@ -259,6 +266,100 @@ export function buildProjection(input: ProjectionInput): Projection {
   return { segments: pieces.map(toSegment), located };
 }
 
+interface AnchoredSpan {
+  suggestion: EditorSuggestion;
+  /** Начало фрагмента в UTF-16; для add — точка вставки (конец строки, где лежит конец якоря). */
+  key: number;
+  /** Конец заменяемого фрагмента; у add совпадает с key. */
+  end: number;
+}
+
+/**
+ * Границы original_text в UTF-16, если им можно верить: те же условия, что у SyncBack
+ * anchored_edit. Иначе правка уходит к поиску первого вхождения — как и в экспорте.
+ */
+export function verifiedSpan(
+  suggestion: EditorSuggestion,
+  text: string,
+  docx: boolean,
+  toUtf16: OffsetMapper,
+): { start: number; end: number } | null {
+  const { start_offset: rawStart, end_offset: rawEnd } = suggestion;
+  if (rawStart === null || rawStart === undefined || rawEnd === null || rawEnd === undefined)
+    return null;
+  const old = suggestion.original_text ?? '';
+  if (!old.trim()) return null;
+  const start = toUtf16(rawStart);
+  const end = toUtf16(rawEnd);
+  if (start > end || end > text.length || text.slice(start, end) !== old) return null;
+  // DocxExporter применяет правку внутри одного абзаца, а абзацы в plain_text разделены «\n».
+  if (docx && old.includes('\n')) return null;
+  // Сервер без нового текста добавление по границам не строит — пусть решает общий путь.
+  if (suggestion.change_type === 'add' && !suggestion.suggested_text) return null;
+  return { start, end };
+}
+
+function anchoredSpan(
+  suggestion: EditorSuggestion,
+  text: string,
+  docx: boolean,
+  toUtf16: OffsetMapper,
+): AnchoredSpan | null {
+  const span = verifiedSpan(suggestion, text, docx, toUtf16);
+  if (!span) return null;
+  if (suggestion.change_type !== 'add') return { suggestion, key: span.start, end: span.end };
+  const newline = text.indexOf('\n', span.end);
+  const at = newline === -1 ? text.length : newline;
+  return { suggestion, key: at, end: at };
+}
+
+/**
+ * Один проход по исходному тексту, как text_edits.apply_edits: устойчивая сортировка по началу
+ * (при равенстве — порядок выдачи), правка с началом внутри уже применённой пропускается,
+ * после вставки курсор перескакивает пустые строки, а следующая вставка в ту же точку
+ * пересечением не считается. Пропущенная правка экспорт не изменит — exportable: false.
+ * Участвуют правки любого статуса: подсветка нужна и непринятым; переводы строк после
+ * вставки остаются в тексте, их схлопывает exportedText.
+ */
+function applyAnchored(
+  text: string,
+  spans: AnchoredSpan[],
+  toChange: (suggestion: EditorSuggestion) => ChangeSegment,
+  located: Record<string, LocatedSuggestion>,
+): Piece[] {
+  const pieces: Piece[] = [];
+  let emitted = 0;
+  let cursor = 0;
+  let lastInsert = -1;
+  for (const span of [...spans].sort((a, b) => a.key - b.key)) {
+    const { suggestion, key } = span;
+    const isAdd = suggestion.change_type === 'add';
+    if (key < cursor && !(isAdd && key === lastInsert)) {
+      located[suggestion.id] = locatedSuggestion(
+        { issue: 'overlap', exportable: false, inline: false },
+        null,
+      );
+      continue;
+    }
+    if (key > emitted)
+      pieces.push({ kind: 'text', text: text.slice(emitted, key), origin: emitted });
+    pieces.push(toChange(suggestion));
+    located[suggestion.id] = locatedSuggestion(
+      { issue: null, exportable: true, inline: true },
+      key,
+    );
+    if (isAdd) {
+      emitted = cursor = lastInsert = key;
+      while (text[cursor] === '\n') cursor += 1;
+    } else {
+      emitted = cursor = span.end;
+    }
+  }
+  if (emitted < text.length || pieces.length === 0)
+    pieces.push({ kind: 'text', text: text.slice(emitted), origin: emitted });
+  return pieces;
+}
+
 interface PieceHit {
   index: number;
   piece: TextPiece;
@@ -326,7 +427,9 @@ function splitPiece(pieces: Piece[], index: number, at: number, change: ChangeSe
 }
 
 function toSegment(piece: Piece): Segment {
-  return piece.kind === 'text' ? { kind: 'text', text: piece.text } : piece;
+  if (piece.kind !== 'text') return piece;
+  const segment: TextSegment = { kind: 'text', text: piece.text };
+  return Object.defineProperty(segment, 'origin', { value: piece.origin, enumerable: false });
 }
 
 /**

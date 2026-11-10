@@ -4,6 +4,8 @@ import type { LocatedSuggestion } from '@/domain/editor/projection';
 /**
  * Позиционные правки идут по документу; непривязанные — стабильно после них.
  * Если у обеих правок есть documentOrder, он точнее смещения (разводит несколько add в одной точке).
+ * При равном месте решает position — порядок внутри ответа модели, по которому сервер и экспорт
+ * ставят правки; индекс в массиве — только запасной вариант: массив могут пересортировать на клиенте.
  */
 export function orderSuggestions(
   suggestions: readonly SuggestionResponse[],
@@ -13,6 +15,7 @@ export function orderSuggestions(
     .map((suggestion, index) => ({
       suggestion,
       index,
+      position: suggestion.position,
       offset: located[suggestion.id]?.originOffset,
       order: located[suggestion.id]?.documentOrder,
     }))
@@ -24,11 +27,15 @@ export function orderSuggestions(
           typeof a.order === 'number' && typeof b.order === 'number'
             ? a.order - b.order
             : Number(a.offset) - Number(b.offset);
-        return position || a.index - b.index;
+        return position || byPosition(a.position, b.position) || a.index - b.index;
       }
       if (aLocated) return -1;
       if (bLocated) return 1;
       return a.index - b.index;
     })
     .map(({ suggestion }) => suggestion);
+}
+
+function byPosition(a: number | undefined, b: number | undefined): number {
+  return typeof a === 'number' && typeof b === 'number' ? a - b : 0;
 }

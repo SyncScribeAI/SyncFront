@@ -13,6 +13,17 @@ export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number];
 export const SUGGESTION_ORIGINS = ['model', 'propagated'] as const;
 export type SuggestionOrigin = (typeof SUGGESTION_ORIGINS)[number];
 
+/**
+ * Ниже этого порога правку стоит проверить внимательнее. API порог не отдаёт: значение
+ * повторяет настройку SyncBack SUGGESTION_LOW_CONFIDENCE_THRESHOLD по умолчанию.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 0.7;
+
+/** null — модель уверенность не указала, тогда и предупреждать не о чем. */
+export function isLowConfidence(score: number | null | undefined): boolean {
+  return typeof score === 'number' && score < LOW_CONFIDENCE_THRESHOLD;
+}
+
 export type Decision = Exclude<SuggestionStatus, 'pending'>;
 
 export interface ChangeTypeMeta {
@@ -41,6 +52,13 @@ export interface EditorSuggestion {
   /** Текст, которым пользователь заменил suggested_text при принятии (уже сохранён на сервере). */
   edited_text?: string | null;
   section_ref?: string | null;
+  /** ref блока из EditorContent.blocks; заполняет только конвейер 2.0. */
+  block_id?: string | null;
+  /** Границы original_text в plain_text, в кодовых точках; null у правок прежнего конвейера. */
+  start_offset?: number | null;
+  end_offset?: number | null;
+  /** Порядок внутри ответа модели; сервер уже сортирует по нему, см. orderSuggestions. */
+  position?: number;
   status: SuggestionStatus;
 }
 

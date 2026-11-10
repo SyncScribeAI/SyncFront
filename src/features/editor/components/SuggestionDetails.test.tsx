@@ -61,4 +61,26 @@ describe('SuggestionDetails', () => {
       screen.getByText('Введен обязательный второй фактор аутентификации.'),
     ).toBeInTheDocument();
   });
+
+  it.each([
+    [0.95, false],
+    [0.6, true],
+    [null, false],
+  ])('при уверенности %s бейдж «Проверьте внимательно»: %s', (score, shown) => {
+    render(
+      <SuggestionDetails
+        suggestion={{ ...suggestion, confidence_score: score }}
+        status="pending"
+        unsaved={false}
+        newText={suggestion.suggested_text ?? ''}
+        located={undefined}
+        canReview
+        undoing={false}
+        onDecide={vi.fn()}
+        onUndo={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(Boolean(screen.queryByText('Проверьте внимательно'))).toBe(shown);
+  });
 });

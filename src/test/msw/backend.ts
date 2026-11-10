@@ -7,6 +7,7 @@
 import { HttpResponse, http } from 'msw';
 
 import type {
+  AnalysisFlagResponse,
   AnalysisJobResponse,
   DocumentListItem,
   DocumentResponse,
@@ -49,6 +50,7 @@ export interface Db {
   sources: DbSource[];
   jobs: AnalysisJobResponse[];
   suggestions: SuggestionResponse[];
+  flags: AnalysisFlagResponse[];
   requests: { method: string; path: string; body?: unknown; headers?: Record<string, string> }[];
 }
 
@@ -59,7 +61,15 @@ export const id = (prefix: string) => {
 };
 
 export function createDb(): Db {
-  return { projects: [], documents: [], sources: [], jobs: [], suggestions: [], requests: [] };
+  return {
+    projects: [],
+    documents: [],
+    sources: [],
+    jobs: [],
+    suggestions: [],
+    flags: [],
+    requests: [],
+  };
 }
 
 export function addProject(db: Db, patch: Partial<ProjectResponse> = {}): ProjectResponse {
@@ -180,6 +190,48 @@ export function addSuggestion(
   };
   db.suggestions.push(suggestion);
   return suggestion;
+}
+
+export function addFlag(
+  db: Db,
+  doc: DbDocument,
+  patch: Partial<AnalysisFlagResponse> & Pick<AnalysisFlagResponse, 'block_id'>,
+): AnalysisFlagResponse {
+  const flag: AnalysisFlagResponse = {
+    id: id('f'),
+    document_id: doc.id,
+    analysis_job_id: doc.currentJobId ?? 'job',
+    section_ref: 'Раздел',
+    reason: 'source_conflict',
+    original_text: '',
+    rationale: null,
+    quotes: [],
+    position: db.flags.filter((f) => f.document_id === doc.id).length,
+    status: 'pending',
+    decided_by: null,
+    decided_at: null,
+    created_at: '2026-09-10T09:10:00Z',
+    ...patch,
+  };
+  db.flags.push(flag);
+  return flag;
+}
+
+function flagsOf(db: Db, doc: DbDocument) {
+  return db.flags.filter((f) => f.document_id === doc.id).sort((a, b) => a.position - b.position);
+}
+
+/** Как SyncBack: группы по всем правкам анализа, а не по странице; группы из одной правки нет. */
+function groupsOf(list: SuggestionResponse[]) {
+  const groups = new Map<string, { group_key: string; size: number; pending: number }>();
+  for (const s of list) {
+    if (!s.group_key) continue;
+    const group = groups.get(s.group_key) ?? { group_key: s.group_key, size: 0, pending: 0 };
+    group.size += 1;
+    if (s.status === 'pending') group.pending += 1;
+    groups.set(s.group_key, group);
+  }
+  return Array.from(groups.values()).filter((group) => group.size > 1);
 }
 
 function suggestionsOf(db: Db, doc: DbDocument) {
@@ -495,7 +547,14 @@ export function backendHandlers(db: Db) {
         original_content: content,
         suggestions: list.slice(offset, offset + limit),
         suggestions_total: list.length,
-        counters: { ...countersOf(db, doc), flags_pending: 0 },
+        flags: withResults ? flagsOf(db, doc) : [],
+        suggestion_groups: groupsOf(list),
+        counters: {
+          ...countersOf(db, doc),
+          flags_pending: withResults
+            ? flagsOf(db, doc).filter((f) => f.status === 'pending').length
+            : 0,
+        },
         permissions: {
           can_analyze: doc.status !== 'in_progress',
           can_review: doc.status === 'awaiting_approval',
@@ -610,13 +669,45 @@ export function backendHandlers(db: Db) {
           s.status = 'pending';
         });
         doc.status = 'awaiting_approval';
+        const flags = flagsOf(db, doc);
+        flags.forEach((f) => {
+          f.status = 'pending';
+          f.decided_by = null;
+          f.decided_at = null;
+        });
         return HttpResponse.json({
           document_id: doc.id,
           document_status: doc.status,
           review_version: doc.reviewVersion,
           suggestions_reset_count: list.length,
-          flags_reset_count: 0,
+          flags_reset_count: flags.length,
         });
+      },
+    ),
+    http.get('/api/v1/projects/:projectId/documents/:documentId/flags', ({ request, params }) => {
+      log(request);
+      const doc = db.documents.find((d) => d.id === params.documentId);
+      if (!doc) return notFound();
+      return HttpResponse.json(flagsOf(db, doc));
+    }),
+    http.patch(
+      '/api/v1/projects/:projectId/documents/:documentId/flags/:flagId',
+      async ({ request, params }) => {
+        const body = (await request.json()) as { status: AnalysisFlagResponse['status'] };
+        log(request, body);
+        const doc = db.documents.find((d) => d.id === params.documentId);
+        const flag = db.flags.find((f) => f.id === params.flagId && f.document_id === doc?.id);
+        if (!doc || !flag) return notFound();
+        // Как SyncBack: отмечать можно только при результатах анализа на руках.
+        if (doc.status !== 'awaiting_approval' && doc.status !== 'ready') {
+          return HttpResponse.json({ detail: 'Документ не в ревью' }, { status: 409 });
+        }
+        if (flag.status !== body.status) {
+          flag.status = body.status;
+          flag.decided_by = body.status === 'reviewed' ? TEST_USER.id : null;
+          flag.decided_at = body.status === 'reviewed' ? '2026-09-10T10:00:00Z' : null;
+        }
+        return HttpResponse.json(flag);
       },
     ),
     http.get('/api/v1/projects/:projectId/documents/:documentId/export', ({ request, params }) => {
