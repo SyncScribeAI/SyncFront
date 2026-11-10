@@ -6,6 +6,7 @@ import { EDITOR_TEXTS, EMPTY_FILTER_TEXTS } from '@/features/editor';
 import { DocumentPage } from '@/pages/DocumentPage';
 import {
   addDocument,
+  addJob,
   addProject,
   addSuggestion,
   backendHandlers,
@@ -329,5 +330,37 @@ describe('Редактор правок', () => {
     const rendered = within(list()).getAllByRole('listitem');
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered.length).toBeLessThan(201);
+  });
+
+  describe('частичный анализ', () => {
+    it('показывает, сколько блоков проверено, и причину', async () => {
+      const { project, doc } = setup();
+      addJob(db, doc.id, {
+        id: 'job-1',
+        status: 'partial_success',
+        partial_success: true,
+        error_code: 'PARTIAL_FAILURE',
+        error_message: 'недоступны источники: wiki',
+        checked_blocks: 3,
+        failed_blocks: 1,
+      });
+      open(project.id, doc.id);
+      expect(
+        await screen.findByText(
+          'Проверено 3 из 4 блоков, часть документа не проверена. недоступны источники: wiki',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('без частичного успеха баннера нет', async () => {
+      const { project, doc } = setup();
+      addJob(db, doc.id, { id: 'job-1', status: 'success' });
+      open(project.id, doc.id);
+      await documentText();
+      await waitFor(() =>
+        expect(db.requests.some((r) => r.path.endsWith('/analysis-jobs/job-1'))).toBe(true),
+      );
+      expect(screen.queryByText(/часть документа не проверена/)).not.toBeInTheDocument();
+    });
   });
 });

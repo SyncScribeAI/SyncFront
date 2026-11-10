@@ -12,6 +12,7 @@ import {
   analysisStateFromContract,
   analysisStateFromJob,
   type AnalysisStateView,
+  type AnalysisWarning,
   isTerminalJobStatus,
   needsJobLookup,
 } from '@/domain/analysis/analysisState';
@@ -98,4 +99,25 @@ export function useAnalysisState(
   if (document.analysis) return analysisStateFromContract(document.analysis);
   if (lookup && job.data) return analysisStateFromJob(job.data);
   return null;
+}
+
+/**
+ * Предупреждение о частичной проверке для документа в ревью. В редакторе поля analysis нет,
+ * поэтому задача запрашивается один раз: завершённая задача не меняется, кеш — навсегда.
+ */
+export function usePartialAnalysisWarning(
+  projectId: string,
+  document: { id: string; status: DocumentStatus; current_analysis_job_id?: string | null },
+): AnalysisWarning | null {
+  const jobId = document.current_analysis_job_id ?? '';
+  const reviewed = document.status === 'awaiting_approval' || document.status === 'ready';
+  const job = useQuery({
+    queryKey: queryKeys.analysisJobs.detail(projectId, document.id, jobId),
+    queryFn: () => getAnalysisJob(projectId, document.id, jobId),
+    enabled: reviewed && Boolean(jobId),
+    staleTime: (query) =>
+      query.state.data && isTerminalJobStatus(query.state.data.status) ? Infinity : 0,
+  });
+  if (!reviewed || !job.data) return null;
+  return analysisStateFromJob(job.data).warning;
 }
