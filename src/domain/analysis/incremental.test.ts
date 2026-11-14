@@ -72,4 +72,15 @@ describe('incrementalSummaryText', () => {
     ).toBe('часть источников не загрузилась');
     expect(incrementalSummaryText({}, null)).toBeNull();
   });
+
+  it('пересозданный источник объясняет полный анализ', () => {
+    const info = {
+      mode: 'full' as const,
+      reason: 'input_changed',
+      fallback_reason: 'sources_replaced',
+    };
+    expect(incrementalSummaryText({ incremental: info }, null)).toBe(
+      'Выполнен полный анализ: источник прошлого анализа удалён или создан заново.',
+    );
+  });
 });
