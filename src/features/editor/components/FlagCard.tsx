@@ -5,8 +5,8 @@ import type { AnalysisFlagResponse } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { flagReasonLabel } from '@/domain/editor/flag';
 import { cn } from '@/lib/cn';
+import { MarkdownView } from '@/lib/markdown/MarkdownView';
 
-import { renderMarkdownText } from '../lib/markdownLite';
 import { FLAG_TEXTS } from '../model/texts';
 
 /** Сколько символов фрагмента показывать в карточке: полный текст есть в документе. */
@@ -73,9 +73,9 @@ export const FlagCard = memo(function FlagCard({
       </button>
 
       {selected && flag.rationale ? (
-        <p className="whitespace-pre-wrap break-words text-muted-foreground">
-          {renderMarkdownText(flag.rationale, true)}
-        </p>
+        <div className="break-words text-muted-foreground">
+          <MarkdownView text={flag.rationale} className="[&_p]:my-1" />
+        </div>
       ) : null}
       {selected && quotes && quotes.length > 0 ? (
         <ul className="space-y-1 text-xs" aria-label="Цитаты источников">

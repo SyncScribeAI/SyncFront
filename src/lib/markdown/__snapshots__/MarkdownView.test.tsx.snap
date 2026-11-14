@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MarkdownView: снимок > фикстура с правкой и флагом 1`] = `
+"<div class="break-words"><h1 class="mb-3 mt-6 text-2xl font-bold">Регламент</h1><p class="my-3">Срок ответа <strong><mark data-id="s1" data-first="true" data-last="true">10 дней</mark></strong> с даты <a href="https://example.com" target="_blank" rel="noopener noreferrer" class="text-primary underline underline-offset-2">заявки</a>.</p><div class="my-3 overflow-x-auto"><table class="w-full border-collapse text-left"><thead><tr><th class="border border-border bg-muted/50 px-2 py-1 font-semibold">Канал</th><th class="border border-border bg-muted/50 px-2 py-1 font-semibold">Срок</th></tr></thead><tbody><tr><td class="border border-border px-2 py-1">Почта</td><td class="border border-border px-2 py-1"><mark data-id="f1" data-first="true" data-last="true">5 дней</mark></td></tr></tbody></table></div><blockquote class="my-3 border-l-2 border-border pl-3 text-muted-foreground">
+<p class="my-3">Примечание: <code class="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">code</code> &lt;i&gt;raw&lt;/i&gt;</p>
+</blockquote></div>"
+`;
