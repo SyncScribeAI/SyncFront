@@ -51,6 +51,31 @@ describe('Источники при создании проекта', () => {
     });
   });
 
+  it('прикрепляет несколько файлов как базовые источники проекта', async () => {
+    const { user, dialog, router } = await openCreate();
+    await waitFor(() => expect(dialog.getByRole('button', { name: 'Выбрать файл' })).toBeEnabled());
+    const input = dialog.getByLabelText('Файл источника');
+    expect(input).toHaveAttribute('multiple');
+    await user.upload(input, [
+      new File(['first'], 'rules-one.txt', { type: 'text/plain' }),
+      new File(['second'], 'rules-two.txt', { type: 'text/plain' }),
+    ]);
+
+    expect(dialog.getByText('rules-one.txt · 5 Б')).toBeInTheDocument();
+    expect(dialog.getByText('rules-two.txt · 6 Б')).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Создать проект' }));
+
+    await expectCreated(router, 2);
+    expect(
+      db.requests
+        .filter((request) => request.path.endsWith('/sources/file'))
+        .map((request) => request.body),
+    ).toEqual([
+      { name: 'rules-one.txt', scope: 'project', document_id: null },
+      { name: 'rules-two.txt', scope: 'project', document_id: null },
+    ]);
+  });
+
   it('отправляет заполненную ссылку без отдельного нажатия «Добавить ссылку»', async () => {
     const { user, dialog, router } = await openCreate();
     await user.click(dialog.getByRole('tab', { name: 'Ссылка' }));

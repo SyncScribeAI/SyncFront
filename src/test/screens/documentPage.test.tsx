@@ -69,7 +69,7 @@ describe('Страница документа', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Отменить анализ' }));
 
     expect(await screen.findByText('Анализ отменён')).toBeInTheDocument();
-    expect(screen.getByText('Документ вернулся в черновик.')).toBeInTheDocument();
+    expect(screen.getByText('Документ вернулся в статус "Черновик".')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Повторить анализ/ })).toBeInTheDocument();
     expect(
       db.requests.some((r) => r.method === 'DELETE' && r.path.endsWith(`/analysis-jobs/${job.id}`)),

@@ -81,6 +81,36 @@ describe('Загрузка документа', () => {
     ).toBeInTheDocument();
   });
 
+  it('обрезает слишком длинное имя выбранного документа, не расширяя карточку', async () => {
+    const { user, dialog } = await openFromProject();
+    const name = `${'very-long-document-name-'.repeat(20)}.docx`;
+    await user.upload(within(dialog).getByLabelText('Файл документа'), new File(['content'], name));
+
+    const nameLabel = within(dialog).getByTitle(name);
+    expect(nameLabel).toHaveClass('truncate');
+    expect(nameLabel.parentElement).toHaveClass('min-w-0', 'flex-1');
+    expect(nameLabel.parentElement?.parentElement).toHaveClass('w-full', 'min-w-0');
+  });
+
+  it('обрезает длинное имя специфичного источника на втором этапе', async () => {
+    const { user, dialog } = await openFromProject();
+    await user.upload(
+      within(dialog).getByLabelText('Файл документа'),
+      new File(['# API'], 'api.md'),
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Далее' }));
+    await user.click(within(dialog).getByRole('tab', { name: 'Заметка' }));
+    const sourceName = 'Длинное имя источника '.repeat(10);
+    await user.type(within(dialog).getByLabelText('Название'), sourceName);
+    await user.type(within(dialog).getByLabelText('Текст заметки'), 'Содержание');
+    await user.click(within(dialog).getByRole('button', { name: 'Добавить заметку' }));
+
+    const nameLabel = within(dialog).getByTitle(sourceName.trim());
+    expect(nameLabel).toHaveClass('truncate');
+    expect(nameLabel.parentElement).toHaveClass('min-w-0');
+    expect(nameLabel.parentElement?.parentElement).toHaveClass('min-w-0');
+  });
+
   it('ошибка сервера при загрузке: остаёмся в форме с сообщением', async () => {
     server.use(
       http.post('/api/v1/projects/:projectId/documents', () =>

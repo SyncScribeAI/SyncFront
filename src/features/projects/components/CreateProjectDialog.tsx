@@ -174,6 +174,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
               <SourceDraftForm
                 ref={sourceForm}
                 disabled={busy}
+                allowMultipleFiles
                 onSubmit={(draft) => {
                   setDrafts((list) => [...list, draft]);
                   return true;

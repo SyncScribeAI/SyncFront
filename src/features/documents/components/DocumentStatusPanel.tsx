@@ -47,7 +47,7 @@ export function DocumentStatusPanel({ projectId, document }: DocumentStatusPanel
       // Для отмены сервер пишет в error_message то же «Анализ отменён», поэтому текст свой.
       const problemText =
         problem?.phase === 'cancelled'
-          ? 'Документ вернулся в черновик.'
+          ? 'Документ вернулся в статус "Черновик".'
           : (problem?.errorMessage ?? 'Сервер не сообщил причину.');
       return (
         <div className="space-y-4">

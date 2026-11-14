@@ -46,7 +46,7 @@ export function FileDropzone({ rules, file, onChange, disabled = false }: FileDr
 
   if (file) {
     return (
-      <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+      <div className="flex w-full min-w-0 items-center gap-3 rounded-lg border bg-card p-3">
         <DocumentFormatIcon format={file.name.split('.').pop() ?? ''} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium" title={file.name}>

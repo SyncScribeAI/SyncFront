@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { FileText, Link2, StickyNote, Upload } from 'lucide-react';
+import { FileText, Link2, StickyNote, Upload, X } from 'lucide-react';
 import { forwardRef, useId, useImperativeHandle, useRef, useState } from 'react';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { z } from 'zod';
@@ -28,6 +28,7 @@ interface SourceDraftFormProps {
    */
   onSubmit: (draft: SourceDraft) => Promise<boolean> | boolean;
   disabled?: boolean;
+  allowMultipleFiles?: boolean;
 }
 
 const nameField = z.string().trim().max(SOURCE_NAME_MAX_LENGTH, 'Не длиннее 255 символов');
@@ -56,12 +57,12 @@ export interface SourceDraftFormHandle {
 
 /** Tab state lives here so switching tabs cannot discard an unfinished source. */
 export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftFormProps>(
-  function SourceDraftForm({ onSubmit, disabled = false }, ref) {
+  function SourceDraftForm({ onSubmit, disabled = false, allowMultipleFiles = false }, ref) {
     const [tab, setTab] = useState('file');
-    const rules = useUploadRules();
+    const rules = useUploadRules('source');
     const inputId = useId();
     const inputRef = useRef<HTMLInputElement>(null);
-    const [file, setFile] = useState<File | null>(null);
+    const [files, setFiles] = useState<File[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const urlForm = useForm<z.infer<typeof urlSchema>>({
@@ -87,7 +88,7 @@ export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftForm
           setTab('file');
           return null;
         }
-        if (file) pending.push(fileDraft(file));
+        pending.push(...files.map(fileDraft));
         const url = urlForm.getValues();
         if (url.url.trim() || url.name.trim()) {
           if (!(await urlForm.trigger())) {
@@ -115,21 +116,44 @@ export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftForm
       },
     }));
 
-    const pick = (next: File | undefined) => {
-      if (!next || !rules) return;
-      const result = validateUploadFile(next, rules);
-      setFile(result.ok ? next : null);
-      setError(result.ok ? null : result.message);
+    const pick = (selection: FileList | null) => {
+      if (!selection || !rules) return;
+      const selected = Array.from(selection);
+      if (inputRef.current) inputRef.current.value = '';
+      const invalid = selected
+        .map((file) => validateUploadFile(file, rules))
+        .filter((result) => !result.ok);
+      if (invalid.length > 0) {
+        setError(invalid.map((result) => (result.ok ? '' : result.message)).join('\n'));
+        return;
+      }
+
+      setFiles((current) => {
+        const existing = new Set(
+          current.map((file) => `${file.name}:${file.size}:${file.lastModified}`),
+        );
+        return [
+          ...current,
+          ...selected.filter((file) => {
+            const key = `${file.name}:${file.size}:${file.lastModified}`;
+            if (existing.has(key)) return false;
+            existing.add(key);
+            return true;
+          }),
+        ];
+      });
+      setError(null);
     };
 
     const submit = async () => {
-      if (!file || busy || disabled) return;
+      if (files.length === 0 || busy || disabled) return;
       setBusy(true);
       try {
-        if (await onSubmit(fileDraft(file))) {
-          setFile(null);
-          if (inputRef.current) inputRef.current.value = '';
+        const failed: File[] = [];
+        for (const file of files) {
+          if (!(await onSubmit(fileDraft(file)))) failed.push(file);
         }
+        setFiles(failed);
       } finally {
         setBusy(false);
       }
@@ -165,7 +189,13 @@ export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftForm
                 Выбрать файл
               </Button>
               <span className="min-w-0 truncate text-sm text-muted-foreground">
-                {file ? `${file.name} · ${formatBytes(file.size)}` : 'Файл не выбран'}
+                {allowMultipleFiles
+                  ? files.length > 0
+                    ? `Выбрано файлов: ${files.length}`
+                    : 'Файлы не выбраны'
+                  : files[0]
+                    ? `${files[0].name} · ${formatBytes(files[0].size)}`
+                    : 'Файл не выбран'}
               </span>
               <input
                 id={inputId}
@@ -174,13 +204,49 @@ export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftForm
                 disabled={disabled || busy || !rules}
                 className="sr-only"
                 aria-label="Файл источника"
+                multiple={allowMultipleFiles}
                 accept={rules ? acceptAttribute(rules.extensions) : undefined}
-                onChange={(event) => pick(event.target.files?.[0])}
+                onChange={(event) => pick(event.target.files)}
               />
             </div>
+            {allowMultipleFiles && files.length > 0 ? (
+              <ul className="divide-y rounded-md border">
+                {files.map((file) => (
+                  <li
+                    key={`${file.name}:${file.size}:${file.lastModified}`}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate" title={file.name}>
+                      {file.name} · {formatBytes(file.size)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      disabled={disabled || busy}
+                      aria-label={`Убрать файл ${file.name}`}
+                      onClick={() =>
+                        setFiles((current) =>
+                          current.filter(
+                            (item) =>
+                              `${item.name}:${item.size}:${item.lastModified}` !==
+                              `${file.name}:${file.size}:${file.lastModified}`,
+                          ),
+                        )
+                      }
+                    >
+                      <X aria-hidden />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {rules ? (
               <p className="text-xs text-muted-foreground">
-                {rules.extensions.join(', ')}, до {rules.maxSizeMb} МБ
+                {allowMultipleFiles
+                  ? `Можно выбрать несколько файлов. ${rules.extensions.join(', ')}, до ${rules.maxSizeMb} МБ каждый`
+                  : `${rules.extensions.join(', ')}, до ${rules.maxSizeMb} МБ`}
               </p>
             ) : null}
             {error ? (
@@ -191,11 +257,11 @@ export const SourceDraftForm = forwardRef<SourceDraftFormHandle, SourceDraftForm
             <Button
               type="button"
               size="sm"
-              disabled={!file || disabled || busy}
+              disabled={files.length === 0 || disabled || busy}
               loading={busy}
               onClick={() => void submit()}
             >
-              Добавить файл
+              {allowMultipleFiles ? 'Добавить выбранные файлы' : 'Добавить файл'}
             </Button>
           </div>
         </TabsContent>
