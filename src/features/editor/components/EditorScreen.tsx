@@ -43,6 +43,7 @@ import { DocxSuggestionsView } from './DocxSuggestionsView';
 import { FlagsSection } from './FlagsSection';
 import { ExportButton } from './ExportButton';
 import { LeaveGuard } from './LeaveGuard';
+import { MarkdownDocument } from './MarkdownDocument';
 import { OriginalDocxView } from './OriginalDocxView';
 import { SuggestionDetails } from './SuggestionDetails';
 import { SuggestionsPanel, type PanelDecision } from './SuggestionsPanel';
@@ -136,7 +137,7 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
   // Word-документ рисуется из самого файла во всех режимах: в «Оригинале» как есть,
   // в «Правках» и «Чистовике» — с правками поверх рендера docx-preview.
   const isDocx = meta.format === 'docx';
-  // Markdown-документ рисуется как обычный текст с построчной разметкой (значение формата на бэкенде — markdown).
+  // Markdown-документ рисуется в исходном форматировании (значение формата на бэкенде markdown).
   const isMarkdown = meta.format.toLowerCase() === 'markdown';
   const file = useDocumentFile(projectId, meta.id, isDocx);
 
@@ -355,19 +356,23 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
   const detailsInPanel = !popover && panelOpen;
   const detailsAboveText = !popover && !panelOpen;
 
+  const textProps = {
+    mode,
+    originalText: model.content.plain_text,
+    segments: projection.segments,
+    selectedId,
+    onSelect: setSelectedId,
+    onUndo: undo,
+    flags: model.flagMarks,
+    selectedFlagId,
+    onSelectFlag: selectFlagInText,
+  };
   const plainText = model.content.plain_text ? (
-    <DocumentText
-      mode={mode}
-      originalText={model.content.plain_text}
-      segments={projection.segments}
-      selectedId={selectedId}
-      onSelect={setSelectedId}
-      onUndo={undo}
-      markdown={isMarkdown}
-      flags={model.flagMarks}
-      selectedFlagId={selectedFlagId}
-      onSelectFlag={selectFlagInText}
-    />
+    isMarkdown ? (
+      <MarkdownDocument {...textProps} />
+    ) : (
+      <DocumentText {...textProps} />
+    )
   ) : (
     <p className="text-sm text-muted-foreground">Документ не содержит текста.</p>
   );
