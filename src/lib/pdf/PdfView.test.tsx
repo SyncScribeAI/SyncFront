@@ -95,11 +95,19 @@ afterEach(() => {
 
 const pages = () => [...document.querySelectorAll<HTMLElement>('[data-page-number]')];
 
+/** Разметка появляется раньше, чем пассивный эффект подписывает страницы на наблюдатель. */
+async function pagesObserved(count: number) {
+  await waitFor(() => {
+    expect(pages()).toHaveLength(count);
+    expect(FakeObserver.current?.targets).toHaveLength(count);
+  });
+}
+
 describe('PdfView', () => {
   it('размечает все страницы, а рисует только видимые', async () => {
     const engine = fakeEngine(5);
     render(<PdfView data={data} highlights={[]} engine={engine} />);
-    await waitFor(() => expect(pages()).toHaveLength(5));
+    await pagesObserved(5);
     // Первая страница запрашивается ради размера разметки, отрисовки нет.
     expect(engine.pagesRequested).toEqual([1]);
     expect(engine.renderTasks.size).toBe(0);
@@ -112,7 +120,7 @@ describe('PdfView', () => {
   it('уход страницы из вида отменяет отрисовку и освобождает страницу', async () => {
     const engine = fakeEngine(3);
     render(<PdfView data={data} highlights={[]} engine={engine} />);
-    await waitFor(() => expect(pages()).toHaveLength(3));
+    await pagesObserved(3);
     FakeObserver.current?.show([2]);
     await waitFor(() => expect(engine.renderTasks.has(2)).toBe(true));
 
@@ -126,7 +134,7 @@ describe('PdfView', () => {
   it('кладёт прямоугольники подсветки в координаты страницы', async () => {
     const engine = fakeEngine(3);
     render(<PdfView data={data} highlights={[highlight]} engine={engine} />);
-    await waitFor(() => expect(pages()).toHaveLength(3));
+    await pagesObserved(3);
     FakeObserver.current?.show([2]);
 
     const box = await waitFor(() => {
@@ -170,7 +178,7 @@ describe('PdfView', () => {
     render(
       <PdfView data={data} highlights={[highlight]} engine={engine} onHighlightClick={onClick} />,
     );
-    await waitFor(() => expect(pages()).toHaveLength(2));
+    await pagesObserved(2);
     FakeObserver.current?.show([2]);
     const rect = await screen.findByTestId('pdf-view').then(() =>
       waitFor(() => {
@@ -193,7 +201,7 @@ describe('PdfView', () => {
         pageSizes={[{ number: 2, width: 800, height: 600 }]}
       />,
     );
-    await waitFor(() => expect(pages()).toHaveLength(2));
+    await pagesObserved(2);
     expect(parseFloat(pages()[0]!.style.height)).toBeCloseTo(800 * 1.28);
     expect(parseFloat(pages()[1]!.style.height)).toBeCloseTo(600 * 1.28);
   });
@@ -209,7 +217,7 @@ describe('PdfView', () => {
   it('размонтирование закрывает документ', async () => {
     const engine = fakeEngine(1);
     const { unmount } = render(<PdfView data={data} highlights={[]} engine={engine} />);
-    await waitFor(() => expect(pages()).toHaveLength(1));
+    await pagesObserved(1);
     unmount();
     expect(engine.destroy).toHaveBeenCalled();
   });
