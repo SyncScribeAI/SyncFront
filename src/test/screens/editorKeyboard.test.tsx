@@ -15,7 +15,8 @@ import {
 import { server } from '@/test/msw/server';
 import { renderWithApp } from '@/test/render';
 
-vi.mock('@/features/editor/lib/renderDocx', () => ({
+vi.mock('@/lib/docx/renderDocx', () => ({
+  DOCX_HOST_CLASS: 'docx-host',
   renderDocx: vi.fn((_blob: Blob, host: HTMLElement) => {
     host.innerHTML =
       '<section><article><p>Срок ответа — 10 дней.</p><p>Оплата картой.</p></article></section>';
