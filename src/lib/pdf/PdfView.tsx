@@ -126,9 +126,13 @@ export function PdfView({
     return map;
   }, [highlights]);
 
-  const focusPage = useMemo(() => {
+  // Выделение нужно на всех страницах подсветки, а в центр встаёт только первая из них.
+  const { focusPage, focusPages } = useMemo(() => {
     const target = focus ? highlights.find((highlight) => highlight.id === focus) : undefined;
-    return target?.rects[0]?.page ?? null;
+    return {
+      focusPage: target?.rects[0]?.page ?? null,
+      focusPages: new Set(target?.rects.map((rect) => rect.page)),
+    };
   }, [focus, highlights]);
 
   useEffect(() => {
@@ -166,7 +170,8 @@ export function PdfView({
             scale={scale}
             visible={visible.has(i + 1)}
             highlights={byPage.get(i + 1) ?? NO_HIGHLIGHTS}
-            focus={focusPage === i + 1 ? focus : null}
+            focus={focusPages.has(i + 1) ? focus : null}
+            centre={focusPage === i + 1}
             onHighlightClick={onHighlightClick}
           />
         ))
@@ -223,7 +228,10 @@ interface PdfPageViewProps {
   scale: number;
   visible: boolean;
   highlights: readonly PageHighlight[];
+  /** Подсветка в фокусе, если у неё есть прямоугольники на этой странице. */
   focus: string | null;
+  /** Страница первой части фокуса: она ставит свой прямоугольник в центр. */
+  centre: boolean;
   onHighlightClick?: (id: string) => void;
 }
 
@@ -237,6 +245,7 @@ const PdfPageView = memo(function PdfPageView({
   visible,
   highlights,
   focus,
+  centre,
   onHighlightClick,
 }: PdfPageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -297,11 +306,11 @@ const PdfPageView = memo(function PdfPageView({
   );
 
   useEffect(() => {
-    if (!focus || !viewport) return;
+    if (!focus || !centre || !viewport) return;
     overlayRef.current
       ?.querySelector<HTMLElement>(`[data-highlight-id="${CSS.escape(focus)}"]`)
       ?.scrollIntoView?.({ block: 'center', inline: 'center' });
-  }, [focus, viewport]);
+  }, [focus, centre, viewport]);
 
   const click = useCallback(
     (id: string) => (onHighlightClick ? () => onHighlightClick(id) : undefined),

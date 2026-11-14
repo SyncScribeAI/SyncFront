@@ -5,6 +5,7 @@
  * показа по формату источника и по тому, совпадает ли файл с разобранным при анализе.
  */
 import { codePointToUtf16 } from '../editor/offsets';
+import { parsePageRects, type PageRect } from '../pdf/pageRect';
 import type { TextRange } from '../editor/textRange';
 
 export type EvidenceMatch = 'exact' | 'approximate' | 'not_found';
@@ -90,6 +91,27 @@ export function showsInDocx(source: ViewableSource, evidence: Evidence): boolean
     evidence.original_file_available &&
     evidence.match !== 'not_found' &&
     docxParagraphs(evidence) !== null
+  );
+}
+
+/**
+ * Прямоугольники строк PDF под основанием. Сервер отдаёт строки блока или строки таблицы,
+ * которые задевает цитата, поэтому подсветка идёт по строкам, а не по словам.
+ */
+export function pdfRects(evidence: Evidence): PageRect[] {
+  const locator = evidence.locator;
+  if (!locator || locator.kind !== 'pdf_rects') return [];
+  return parsePageRects(locator.rects);
+}
+
+/** Основание можно подсветить в оригинале PDF: файл тот же и есть прямоугольники. */
+export function showsInPdf(source: ViewableSource, evidence: Evidence): boolean {
+  return (
+    source.type === 'file' &&
+    extension(source.name) === 'pdf' &&
+    evidence.original_file_available &&
+    evidence.match !== 'not_found' &&
+    pdfRects(evidence).length > 0
   );
 }
 

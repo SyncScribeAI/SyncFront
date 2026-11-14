@@ -51,6 +51,8 @@ export const queryKeys = {
     /** Текст снимка неизменен: снимок фиксирует вход конкретного анализа. */
     file: (projectId: string, sourceId: string) =>
       ['sources', 'file', projectId, sourceId] as const,
+    fileBytes: (projectId: string, sourceId: string) =>
+      ['sources', 'fileBytes', projectId, sourceId] as const,
     snapshot: (projectId: string, snapshotId: string) =>
       ['sources', 'snapshot', projectId, snapshotId] as const,
   },
