@@ -39,6 +39,8 @@ export type AnalysisJobResponse = Schemas['AnalysisJobResponse'];
 export type BulkAnalysisJobsResponse = Schemas['BulkAnalysisJobsResponse'];
 
 export type SuggestionSourceResponse = Schemas['SuggestionSourceResponse'];
+export type EvidenceResponse = Schemas['EvidenceResponse'];
+export type SourceSnapshotContent = Schemas['SourceSnapshotContentResponse'];
 export type SuggestionResponse = Schemas['SuggestionResponse'];
 export type SuggestionGroupResponse = Schemas['SuggestionGroupResponse'];
 export type EditorAggregateResponse = Schemas['EditorAggregateResponse'];

@@ -117,7 +117,11 @@ describe('Страница проекта', () => {
       within(dialog).getByText(/Текущие результаты анализа будут заменены/),
     ).toBeInTheDocument();
     const firstCall = db.requests.find((r) => r.path.endsWith('/analysis-jobs/bulk'));
-    expect(firstCall?.body).toEqual({ document_ids: [draft.id, ready.id], force: false });
+    expect(firstCall?.body).toEqual({
+      document_ids: [draft.id, ready.id],
+      force: false,
+      strategy: 'auto',
+    });
 
     await user.click(within(dialog).getByRole('button', { name: 'Запустить анализ' }));
     await waitFor(() =>
@@ -126,6 +130,7 @@ describe('Страница проекта', () => {
       ).toEqual({
         document_ids: [ready.id],
         force: true,
+        strategy: 'auto',
       }),
     );
     expect(await screen.findAllByText('Идёт анализ')).toHaveLength(2);
@@ -139,7 +144,7 @@ describe('Страница проекта', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Запустить анализ' }));
     await waitFor(() => {
       const call = db.requests.find((r) => r.path.endsWith(`/documents/${ready.id}/analysis-jobs`));
-      expect(call?.body).toEqual({ force: true });
+      expect(call?.body).toEqual({ force: true, strategy: 'auto' });
       expect(call?.headers?.['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);
     });
   });
@@ -152,7 +157,7 @@ describe('Страница проекта', () => {
       const call = db.requests.find((r) =>
         r.path.endsWith(`/documents/${review.id}/analysis-jobs`),
       );
-      expect(call?.body).toEqual({ force: false });
+      expect(call?.body).toEqual({ force: false, strategy: 'auto' });
     });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });

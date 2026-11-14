@@ -7,4 +7,4 @@ export {
   createSourcesFromDrafts,
   type DraftFailure,
 } from './model/createFromDraft';
-export { SourcePreviewDialog, type PreviewableSource } from './components/SourcePreviewDialog';
+export { SourceViewer, type PreviewableSource } from './components/SourceViewer';

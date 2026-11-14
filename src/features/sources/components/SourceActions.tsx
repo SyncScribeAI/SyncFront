@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { downloadBlob } from '@/lib/downloadBlob';
 import { getErrorMessage } from '@/lib/errors';
 
-import { SourcePreviewDialog, type PreviewableSource } from './SourcePreviewDialog';
+import { SourceViewer, type PreviewableSource } from './SourceViewer';
 
 interface SourceActionsProps {
   projectId: string;
@@ -83,7 +83,7 @@ export function SourceActions({ projectId, source }: SourceActionsProps) {
         </Tooltip>
       ) : null}
       {previewing ? (
-        <SourcePreviewDialog
+        <SourceViewer
           projectId={projectId}
           source={source}
           open={previewing}

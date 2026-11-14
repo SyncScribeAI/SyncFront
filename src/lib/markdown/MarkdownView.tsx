@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, type ComponentPropsWithoutRef, type ReactNode } from 'react';
-import Markdown, { type Components, type ExtraProps } from 'react-markdown';
+import Markdown, { type Components, type ExtraProps, type Options } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import type { TextRange } from '@/domain/editor/textRange';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/cn';
 
 import { chunkKeys, splitMarkdownChunks, type MarkdownChunk } from './chunks';
 import { RANGE_TAG, rehypeSourceRanges, type SourceRange } from './rehypeSourceRanges';
+import { remarkPipeTables } from './remarkPipeTables';
 
 export interface RangeRenderProps {
   range: TextRange;
@@ -29,6 +30,8 @@ export interface MarkdownViewProps {
    * перерисовывается, только когда меняется его текст или состояние его диапазонов.
    */
   rangeState?: (range: TextRange) => string;
+  /** Текст снимка источника: строки «| a | b |» без разделителя рисуются таблицей. */
+  pipeTables?: boolean;
   className?: string;
 }
 
@@ -148,16 +151,21 @@ const BASE_COMPONENTS: Components = {
   ),
 };
 
+type RemarkPlugins = NonNullable<Options['remarkPlugins']>;
+const DOCUMENT_PLUGINS: RemarkPlugins = [remarkGfm];
+const SNAPSHOT_PLUGINS: RemarkPlugins = [remarkGfm, remarkPipeTables];
+
 interface ChunkProps {
   part: ChunkRanges;
   stateKey: string;
   rendererRef: { current: RangeRenderer | undefined };
+  pipeTables: boolean;
 }
 
 type SpanProps = ComponentPropsWithoutRef<'span'> & Record<`data-${string}`, string | undefined>;
 
 const Chunk = memo(
-  function Chunk({ part, rendererRef }: ChunkProps) {
+  function Chunk({ part, rendererRef, pipeTables }: ChunkProps) {
     const { chunk, ranges, byKey } = part;
     // Компонент диапазона создаётся один раз на кусок: новый тип компонента заставил бы
     // React пересоздать узлы, и фокус и ссылки на них потерялись бы. Данные берутся по ref.
@@ -185,7 +193,7 @@ const Chunk = memo(
     );
     return (
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={pipeTables ? SNAPSHOT_PLUGINS : DOCUMENT_PLUGINS}
         rehypePlugins={[[rehypeSourceRanges, { source: chunk.text, ranges }]]}
         components={components}
         urlTransform={safeUrl}
@@ -194,7 +202,10 @@ const Chunk = memo(
       </Markdown>
     );
   },
-  (prev, next) => prev.part.chunk.text === next.part.chunk.text && prev.stateKey === next.stateKey,
+  (prev, next) =>
+    prev.part.chunk.text === next.part.chunk.text &&
+    prev.stateKey === next.stateKey &&
+    prev.pipeTables === next.pipeTables,
 );
 
 /**
@@ -206,6 +217,7 @@ export function MarkdownView({
   ranges = NO_RANGES,
   renderRange,
   rangeState,
+  pipeTables = false,
   className,
 }: MarkdownViewProps) {
   const rendererRef = useRef(renderRange);
@@ -220,6 +232,7 @@ export function MarkdownView({
           key={keys[index]}
           part={part}
           rendererRef={rendererRef}
+          pipeTables={pipeTables}
           stateKey={part.ranges
             .map((range) => {
               const full = part.byKey.get(rangeKey(range.kind, range.id));

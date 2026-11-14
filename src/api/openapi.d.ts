@@ -397,6 +397,11 @@ export interface paths {
         /**
          * Upload File Source
          * @description Загрузить файловый источник.
+         *
+         *     Принимаются .docx, .md, .markdown, .txt и .pdf; другой формат даёт 415. PDF без
+         *     текстового слоя, с паролем или больше лимита страниц даёт 422 с причиной. Если текста
+         *     нет только на части страниц, файл принимается, а их номера приходят в
+         *     pages_without_text.
          */
         post: operations["upload_file_source_api_v1_projects__project_id__sources_file_post"];
         delete?: never;
@@ -422,6 +427,29 @@ export interface paths {
         get: operations["get_source_content_api_v1_projects__project_id__sources__source_id__content_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sources/{source_id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Source
+         * @description Загрузить и разобрать источник так же, как это сделает анализ.
+         *
+         *     Отказ загрузки приходит в ответе 200 с ok=false и текстом в error: фронтенд
+         *     показывает его сразу после добавления ссылки.
+         */
+        post: operations["check_source_api_v1_projects__project_id__sources__source_id__check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -457,6 +485,23 @@ export interface paths {
         };
         /** Скачать исходный файл источника через API */
         get: operations["download_source_file_api_v1_projects__project_id__sources__source_id__file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/source-snapshots/{snapshot_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Snapshot Content */
+        get: operations["get_snapshot_content_api_v1_projects__project_id__source_snapshots__snapshot_id__content_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -955,6 +1000,8 @@ export interface components {
              * @description Порядок флага в ответе конвейера
              */
             position: number;
+            /** @description Только у PDF: блок флага на страницах оригинала */
+            geometry?: components["schemas"]["PageGeometryResponse"] | null;
             /**
              * Status
              * @enum {string}
@@ -996,6 +1043,33 @@ export interface components {
             queue: components["schemas"]["AnalysisQueueHealth"];
         };
         /**
+         * AnalysisIncrementalInfo
+         * @description Как задача получила результат: вызовом ML или переносом из прошлой задачи.
+         */
+        AnalysisIncrementalInfo: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "reused" | "full";
+            /**
+             * Reason
+             * @description reused, mode_off, strategy_full, sources_failed, no_baseline или input_changed
+             */
+            reason: string;
+            /** Baseline Job Id */
+            baseline_job_id?: string | null;
+            /**
+             * Changed Share
+             * @description Доля символов источников в новых сегментах
+             */
+            changed_share?: number | null;
+            /** Segments Added */
+            segments_added?: number | null;
+            /** Segments Removed */
+            segments_removed?: number | null;
+        };
+        /**
          * AnalysisJobConflictResponse
          * @description Ответ 409 на повторный анализ готового документа без force: клиент спрашивает подтверждение.
          */
@@ -1018,6 +1092,13 @@ export interface components {
              * @default false
              */
             force: boolean;
+            /**
+             * Strategy
+             * @description auto переносит результат прошлой полной задачи, если вход анализа не изменился; full всегда вызывает ML-конвейер
+             * @default auto
+             * @enum {string}
+             */
+            strategy: "auto" | "full";
         };
         /** AnalysisJobResponse */
         AnalysisJobResponse: {
@@ -1062,6 +1143,14 @@ export interface components {
              * @description Сколько блоков конвейер не смог проверить; None — неизвестно
              */
             failed_blocks?: number | null;
+            /**
+             * Strategy
+             * @default auto
+             * @enum {string}
+             */
+            strategy: "auto" | "full";
+            incremental?: components["schemas"]["AnalysisIncrementalInfo"] | null;
+            run_stats?: components["schemas"]["AnalysisRunStats"] | null;
         };
         /**
          * AnalysisJobStatusVO
@@ -1080,6 +1169,28 @@ export interface components {
              * @description Сколько воркеров слушают очередь; null — брокер не ответил
              */
             consumers: number | null;
+        };
+        /**
+         * AnalysisRunStats
+         * @description Объём входа и отправленного в ML; в harness счётчики вызовов модели, если они есть.
+         */
+        AnalysisRunStats: {
+            /** Segments Total */
+            segments_total: number;
+            /** Segments Sent */
+            segments_sent: number;
+            /** Chars Total */
+            chars_total: number;
+            /** Chars Sent */
+            chars_sent: number;
+            /** Blocks Total */
+            blocks_total: number;
+            /** Blocks Checked */
+            blocks_checked: number;
+            /** Harness */
+            harness?: {
+                [key: string]: number;
+            } | null;
         };
         /**
          * AnalysisStateResponse
@@ -1221,6 +1332,13 @@ export interface components {
              * @default false
              */
             force: boolean;
+            /**
+             * Strategy
+             * @description auto переносит результат прошлой полной задачи, если вход анализа не изменился; full всегда вызывает ML-конвейер
+             * @default auto
+             * @enum {string}
+             */
+            strategy: "auto" | "full";
         };
         /** BulkJobResult */
         BulkJobResult: {
@@ -1391,6 +1509,11 @@ export interface components {
              */
             review_version: number;
             analysis?: components["schemas"]["AnalysisStateResponse"] | null;
+            /**
+             * Pages Without Text
+             * @description Только в ответе на загрузку PDF: страницы без текстового слоя (с единицы). Документ принят, но текст этих страниц в анализ и редактор не попадёт
+             */
+            pages_without_text?: number[] | null;
         };
         /** DocumentSectionResponse */
         DocumentSectionResponse: {
@@ -1466,6 +1589,11 @@ export interface components {
              * @default []
              */
             blocks: components["schemas"]["EditorBlockResponse"][];
+            /**
+             * Pages
+             * @description Только у PDF: размеры страниц в порядке просмотра, чтобы клиент разметил страницы до отрисовки и наложил прямоугольники geometry
+             */
+            pages?: components["schemas"]["PageSizeResponse"][] | null;
         };
         /**
          * EditorCounters
@@ -1540,6 +1668,66 @@ export interface components {
              */
             sources_is_editable: boolean;
         };
+        /**
+         * EvidenceResponse
+         * @description Цитата источника, на которой основана правка, и её место в снимке источника.
+         */
+        EvidenceResponse: {
+            /**
+             * Source Id
+             * @description Источник цитаты; None, если источник не определён или удалён
+             */
+            source_id?: string | null;
+            /**
+             * Source Name
+             * @description Имя источника на момент анализа или из цитаты
+             */
+            source_name: string;
+            /**
+             * Snapshot Id
+             * @description Снимок источника, в котором искалась цитата: GET /api/v1/projects/{project_id}/source-snapshots/{snapshot_id}/content
+             */
+            snapshot_id?: string | null;
+            /**
+             * Quote
+             * @description Цитата в том виде, в каком её вернул конвейер
+             */
+            quote: string;
+            /**
+             * Match
+             * @description exact — найден диапазон цитаты; approximate — цитата пересказана, диапазон покрывает сегмент; not_found — места в снимке нет
+             * @enum {string}
+             */
+            match: "exact" | "approximate" | "not_found";
+            /**
+             * Start Offset
+             * @description Начало в тексте снимка, в символах Unicode
+             */
+            start_offset?: number | null;
+            /**
+             * End Offset
+             * @description Конец в тексте снимка, не включая
+             */
+            end_offset?: number | null;
+            /**
+             * Segment Index
+             * @description Номер сегмента снимка
+             */
+            segment_index?: number | null;
+            /**
+             * Locator
+             * @description Место в исходном файле. docx_paragraphs: first и last, порядковые номера непустых абзацев файла, оба включены
+             */
+            locator?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Original File Available
+             * @description Файл источника тот же, что разбирался при анализе: подсветку можно показать в оригинале; иначе только в тексте снимка
+             * @default false
+             */
+            original_file_available: boolean;
+        };
         /** ExportCapabilities */
         ExportCapabilities: {
             /** Endpoint */
@@ -1564,6 +1752,22 @@ export interface components {
             source_name: string;
             /** Text */
             text: string;
+            /** Source Id */
+            source_id?: string | null;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Match */
+            match?: ("exact" | "approximate" | "not_found") | null;
+            /** Start Offset */
+            start_offset?: number | null;
+            /** End Offset */
+            end_offset?: number | null;
+            /** Segment Index */
+            segment_index?: number | null;
+            /** Locator */
+            locator?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1587,6 +1791,26 @@ export interface components {
             name: string;
             /** Text Content */
             text_content: string;
+        };
+        /** PageGeometryResponse */
+        PageGeometryResponse: {
+            /**
+             * Rects
+             * @description Прямоугольники [page, x0, y0, x1, y1]: page с единицы, координаты в точках в пространстве страницы PDF (начало внизу слева, без учёта CropBox и /Rotate), как у аннотаций. У вставки это символ перед точкой вставки
+             */
+            rects: number[][];
+        };
+        /**
+         * PageSizeResponse
+         * @description Размер страницы в точках с учётом CropBox и поворота.
+         */
+        PageSizeResponse: {
+            /** Number */
+            number: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
         };
         /** Page[DocumentResponse] */
         Page_DocumentResponse_: {
@@ -1909,6 +2133,18 @@ export interface components {
             created_at?: string | null;
         };
         /**
+         * SourceCheckResponse
+         * @description Итог пробной загрузки источника: ничего не сохраняется.
+         */
+        SourceCheckResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Chars */
+            chars: number;
+            /** Error */
+            error?: string | null;
+        };
+        /**
          * SourceContentResponse
          * @description Содержимое источника для просмотра.
          *
@@ -1996,12 +2232,34 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Pages Without Text
+             * @description Только в ответе на загрузку PDF: страницы без текстового слоя (с единицы). Файл принят, но текст этих страниц в анализ не попадёт
+             */
+            pages_without_text?: number[] | null;
         };
         /**
          * SourceScopeVO
          * @enum {string}
          */
         SourceScopeVO: "project" | "document";
+        /**
+         * SourceSnapshotContentResponse
+         * @description Текст снимка; offsets в основаниях правок считаются в кодпойнтах этого текста.
+         */
+        SourceSnapshotContentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Text */
+            text: string;
+            /** Chars */
+            chars: number;
+            /** Taken At */
+            taken_at?: string | null;
+        };
         /** SuggestionCounters */
         SuggestionCounters: {
             /** Total */
@@ -2131,6 +2389,13 @@ export interface components {
              */
             origin: "model" | "propagated";
             /**
+             * Evidence
+             * @description Основания правки; пусто, если цитаты не извлеклись или анализ старый
+             */
+            evidence?: components["schemas"]["EvidenceResponse"][];
+            /** @description Только у PDF: где правка на страницах оригинала; None у других форматов */
+            geometry?: components["schemas"]["PageGeometryResponse"] | null;
+            /**
              * Status
              * @enum {string}
              */
@@ -2215,6 +2480,11 @@ export interface components {
              * @description Расширения файлов документа, которые принимает загрузка (с точкой, строчные)
              */
             document_extensions: string[];
+            /**
+             * Source Extensions
+             * @description Расширения файлов источника, которые принимает загрузка (с точкой, строчные); форма источника читает их вместо document_extensions
+             */
+            source_extensions?: string[] | null;
             /**
              * Unsupported Extensions
              * @description Известные расширения, на которые загрузка ответит 415
@@ -2923,7 +3193,7 @@ export interface operations {
     export_document_api_v1_projects__project_id__documents__document_id__export_get: {
         parameters: {
             query?: {
-                /** @description Целевой формат экспорта: md, docx, txt. */
+                /** @description Целевой формат экспорта: md, docx, txt, pdf. */
                 export_format?: string | null;
             };
             header?: never;
@@ -3163,6 +3433,38 @@ export interface operations {
             };
         };
     };
+    check_source_api_v1_projects__project_id__sources__source_id__check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_source_api_v1_projects__project_id__sources__source_id__delete: {
         parameters: {
             query?: never;
@@ -3212,6 +3514,38 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_snapshot_content_api_v1_projects__project_id__source_snapshots__snapshot_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                snapshot_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSnapshotContentResponse"];
                 };
             };
             /** @description Validation Error */

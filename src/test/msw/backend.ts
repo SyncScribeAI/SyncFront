@@ -156,6 +156,7 @@ export function addJob(
     started_at: null,
     finished_at: null,
     partial_success: false,
+    strategy: 'auto',
     ...patch,
   };
   db.jobs.push(job);

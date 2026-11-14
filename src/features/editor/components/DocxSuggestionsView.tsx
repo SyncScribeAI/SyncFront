@@ -15,6 +15,7 @@ import type { DocumentBlock } from '@/domain/editor/block';
 import type { DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion, SuggestionStatus } from '@/domain/editor/suggestion';
 import { cn } from '@/lib/cn';
+import { DOCX_HOST_CLASS, renderDocx } from '@/lib/docx/renderDocx';
 
 import { decorateAnchor, type InlineMode } from '../lib/decorateAnchor';
 import {
@@ -25,9 +26,8 @@ import {
   type AnchorReport,
 } from '../lib/docxAnchors';
 import { isMarkerActivation, isSuggestionTarget } from '../lib/suggestionKeyboard';
-import { renderDocx } from '../lib/renderDocx';
 
-import { DOCX_RENDER_FAILED, HOST_CLASS } from './OriginalDocxView';
+import { DOCX_RENDER_FAILED } from './OriginalDocxView';
 
 interface DocxSuggestionsViewProps {
   file: Blob | undefined;
@@ -247,7 +247,7 @@ export function DocxSuggestionsView({
         tabIndex={-1}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
-        className={cn(HOST_CLASS, 'outline-none', (busy || failed) && 'hidden')}
+        className={cn(DOCX_HOST_CLASS, 'outline-none', (busy || failed) && 'hidden')}
       />
     </div>
   );

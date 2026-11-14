@@ -6,19 +6,26 @@
  *   текстом того же порядкового номера, а если нет и его — правка ищется как без границ;
  * - правка без границ ищется по `original_text`: первое вхождение внутри одного абзаца
  *   (`DocxExporter` тоже не меняет текст через границу абзаца).
- * Найденный фрагмент оборачивается в `<span data-suggestion-id>` — даже если он пересекает
- * несколько ранов с разным форматированием: Range.extractContents клонирует частичные
- * обёртки, так что жирный/курсив внутри фрагмента сохраняются.
+ * Найденный фрагмент оборачивается в `<span data-suggestion-id>`, даже если он пересекает
+ * несколько ранов с разным форматированием: обход DOM и оборачивание общие с просмотром
+ * источника и живут в lib/docx/domText.
  */
 import type { DocumentBlock } from '@/domain/editor/block';
 import { codePointToUtf16, spansInUtf16 } from '@/domain/editor/offsets';
 import { verifiedSpan, type DocumentSection } from '@/domain/editor/projection';
 import type { EditorSuggestion } from '@/domain/editor/suggestion';
+import {
+  collectParagraphs,
+  flatten,
+  nonEmptyParagraphs,
+  normalizeDomText as normalize,
+  rangeFor,
+  wrapRange,
+  type FlatBlock,
+} from '@/lib/docx/domText';
 
 export const ANCHOR_ATTR = 'data-suggestion-id';
 const ANCHOR_SELECTOR = `[${ANCHOR_ATTR}]`;
-/** Абзацы docx-preview: `p` в теле и в ячейках таблиц; заголовки Word — тоже `p` со стилем. */
-const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, h5, h6';
 
 export type AnchorMiss = 'not_found' | 'overlap' | 'not_applicable';
 
@@ -38,62 +45,8 @@ export interface AnchorInput {
   blocks?: readonly DocumentBlock[];
 }
 
-interface TextRun {
-  node: Text;
-  start: number;
-}
-
-interface FlatBlock {
-  element: HTMLElement;
-  text: string;
-  runs: TextRun[];
-}
-
-/** Нормализация 1:1 по длине, чтобы смещения в нормализованном тексте совпадали с DOM. */
-function normalize(text: string): string {
-  return text.replace(/\u00a0/g, ' ');
-}
-
-function flatten(element: HTMLElement): FlatBlock {
-  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  const runs: TextRun[] = [];
-  let text = '';
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const textNode = node as Text;
-    runs.push({ node: textNode, start: text.length });
-    text += normalize(textNode.data);
-  }
-  return { element, text, runs };
-}
-
 function collectBlocks(root: HTMLElement): FlatBlock[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(BLOCK_SELECTOR))
-    .filter((element) => element.closest(ANCHOR_SELECTOR) === null)
-    .map(flatten);
-}
-
-/**
- * Точка (узел, смещение) для смещения в плоском тексте. Для начала берём последний ран,
- * начинающийся не позже смещения; для конца — последний ран, начинающийся строго раньше,
- * чтобы граница легла в конец узла, а не в начало следующего.
- */
-function pointAt(runs: TextRun[], offset: number, isEnd: boolean): { node: Text; offset: number } {
-  let chosen = runs[0];
-  if (!chosen) throw new Error('empty block');
-  for (const run of runs) {
-    if (run.start < offset || (!isEnd && run.start === offset)) chosen = run;
-    else break;
-  }
-  return { node: chosen.node, offset: offset - chosen.start };
-}
-
-function rangeFor(block: FlatBlock, start: number, length: number): Range {
-  const range = block.element.ownerDocument.createRange();
-  const from = pointAt(block.runs, start, false);
-  const to = pointAt(block.runs, start + length, true);
-  range.setStart(from.node, from.offset);
-  range.setEnd(to.node, to.offset);
-  return range;
+  return collectParagraphs(root, ANCHOR_SELECTOR);
 }
 
 function intersectsAnchor(block: FlatBlock, range: Range): boolean {
@@ -102,12 +55,8 @@ function intersectsAnchor(block: FlatBlock, range: Range): boolean {
   );
 }
 
-function wrap(doc: Document, range: Range, id: string): HTMLElement {
-  const span = doc.createElement('span');
-  span.setAttribute(ANCHOR_ATTR, id);
-  span.appendChild(range.extractContents());
-  range.insertNode(span);
-  return span;
+function wrap(range: Range, id: string): HTMLElement {
+  return wrapRange(range, ANCHOR_ATTR, id);
 }
 
 /** Та же нормализация, что у SyncBack normalize_text; DOM при поиске не меняем. */
@@ -138,7 +87,7 @@ interface BlockTarget {
  */
 function blockLocator(root: HTMLElement, plainText: string, blocks: readonly DocumentBlock[]) {
   const spans = spansInUtf16(blocks, codePointToUtf16(plainText));
-  const paragraphs = collectBlocks(root).filter((block) => block.text.trim() !== '');
+  const paragraphs = nonEmptyParagraphs(root, ANCHOR_SELECTOR);
   const blockTexts = spans.map((block) => plainText.slice(block.start_offset, block.end_offset));
   let byText: Map<string, FlatBlock[]> | null = null;
 
@@ -237,7 +186,7 @@ export function anchorSuggestions(root: HTMLElement, input: AnchorInput): Anchor
       missed.set(item.suggestion.id, 'overlap');
       continue;
     }
-    const span = wrap(root.ownerDocument, range, item.suggestion.id);
+    const span = wrap(range, item.suggestion.id);
     originals.set(span, cloneChildren(span));
     anchored.set(item.suggestion.id, span);
   }
@@ -263,7 +212,7 @@ export function anchorSuggestions(root: HTMLElement, input: AnchorInput): Anchor
       if (intersectsAnchor(block, range)) {
         missed.set(suggestion.id, 'overlap');
       } else {
-        const span = wrap(root.ownerDocument, range, suggestion.id);
+        const span = wrap(range, suggestion.id);
         originals.set(span, cloneChildren(span));
         anchored.set(suggestion.id, span);
       }

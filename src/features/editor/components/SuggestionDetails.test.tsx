@@ -1,6 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import * as snapshots from '@/api/resources/sourceSnapshots';
 import type { SuggestionResponse } from '@/api/types';
 
 import { SuggestionDetails } from './SuggestionDetails';
@@ -82,5 +85,58 @@ describe('SuggestionDetails', () => {
       />,
     );
     expect(Boolean(screen.queryByText('Проверьте внимательно'))).toBe(shown);
+  });
+
+  it('ссылка с основаниями открывает просмотр снимка с подсветкой цитаты', async () => {
+    const text = 'Для входа обязателен второй фактор.';
+    vi.spyOn(snapshots, 'getSnapshotContent').mockResolvedValue({
+      id: 'n1',
+      text,
+      chars: text.length,
+      taken_at: '2026-11-01T10:00:00Z',
+    });
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SuggestionDetails
+          suggestion={{
+            ...suggestion,
+            evidence: [
+              {
+                source_id: 's-0001-4000-8000-000000000000',
+                source_name: 'Регламент безопасности',
+                snapshot_id: 'n1',
+                quote: 'второй фактор',
+                match: 'exact',
+                start_offset: 21,
+                end_offset: 34,
+                original_file_available: false,
+              },
+            ],
+          }}
+          status="pending"
+          unsaved={false}
+          newText={suggestion.suggested_text ?? ''}
+          located={undefined}
+          canReview
+          undoing={false}
+          onDecide={vi.fn()}
+          onUndo={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByRole('link', { name: 'Источник: Регламент безопасности' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Источник: Регламент безопасности' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(dialog.querySelector('[data-evidence="first"]')?.textContent).toBe('второй фактор'),
+    );
+    expect(within(dialog).getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute(
+      'href',
+      'https://example.com/security-policy',
+    );
   });
 });

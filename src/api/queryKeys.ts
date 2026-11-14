@@ -48,6 +48,11 @@ export const queryKeys = {
     /** Текст источника для просмотра; источник неизменяем — кешируется надолго. */
     content: (projectId: string, sourceId: string) =>
       ['sources', 'content', projectId, sourceId] as const,
+    /** Текст снимка неизменен: снимок фиксирует вход конкретного анализа. */
+    file: (projectId: string, sourceId: string) =>
+      ['sources', 'file', projectId, sourceId] as const,
+    snapshot: (projectId: string, snapshotId: string) =>
+      ['sources', 'snapshot', projectId, snapshotId] as const,
   },
   analysisJobs: {
     all: ['analysis-jobs'] as const,

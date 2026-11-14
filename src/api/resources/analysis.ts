@@ -22,7 +22,8 @@ export async function startAnalysis({
         path: { project_id: projectId, document_id: documentId },
         header: { 'Idempotency-Key': idempotencyKey },
       },
-      body: { force },
+      // Перенос результата при неизменном входе остаётся решением сервера по умолчанию.
+      body: { force, strategy: 'auto' },
     }),
   );
 }
@@ -49,7 +50,7 @@ export async function startBulkAnalysis(
   return ok(
     await client.POST('/api/v1/projects/{project_id}/documents/analysis-jobs/bulk', {
       params: { path: { project_id: projectId } },
-      body,
+      body: { ...body, strategy: 'auto' },
     }),
   );
 }

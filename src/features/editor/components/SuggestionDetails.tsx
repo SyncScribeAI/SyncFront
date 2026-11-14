@@ -9,14 +9,15 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { SuggestionResponse, SuggestionSourceResponse } from '@/api/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import type { LocatedSuggestion } from '@/domain/editor/projection';
 import { decisionLabel, type Decision, type SuggestionStatus } from '@/domain/editor/suggestion';
-import { SourcePreviewDialog } from '@/features/sources';
+import { SourceViewer } from '@/features/sources';
+import { evidenceOfSource } from '@/domain/source/evidence';
 
 import { EDITOR_TEXTS, GROUP_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
@@ -83,6 +84,15 @@ export function SuggestionDetails({
   const [draft, setDraft] = useState(newText);
   const [previewSource, setPreviewSource] = useState<SuggestionSourceResponse | null>(null);
   const sources = suggestion.sources ?? [];
+  const sourceEvidence = useMemo(() => {
+    const evidence = suggestion.evidence ?? [];
+    return new Map(
+      (suggestion.sources ?? []).map((source) => [
+        source.id,
+        evidenceOfSource(evidence, source.id),
+      ]),
+    );
+  }, [suggestion.sources, suggestion.evidence]);
   const confidence =
     typeof suggestion.confidence_score === 'number'
       ? Math.round(suggestion.confidence_score * 100)
@@ -130,7 +140,9 @@ export function SuggestionDetails({
           {sources.length > 0 ? (
             <div className="space-y-1" aria-label="Источники правки">
               {sources.map((source) =>
-                source.type === 'url' && source.url ? (
+                // Ссылка с основаниями открывается в просмотре снимка: там видна цитата,
+                // а страница сайта могла с тех пор измениться.
+                source.type === 'url' && source.url && !sourceEvidence.get(source.id)?.length ? (
                   <a
                     key={source.id}
                     href={source.url}
@@ -266,9 +278,10 @@ export function SuggestionDetails({
         </div>
       </div>
       {previewSource ? (
-        <SourcePreviewDialog
+        <SourceViewer
           projectId={previewSource.project_id}
           source={previewSource}
+          evidence={sourceEvidence.get(previewSource.id)}
           open
           onOpenChange={(open) => {
             if (!open) setPreviewSource(null);
