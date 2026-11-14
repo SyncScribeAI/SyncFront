@@ -1,4 +1,5 @@
 export { AnalysisProblem } from './components/AnalysisProblem';
+export { IncrementalAnalysisSummary } from './components/IncrementalAnalysisSummary';
 export { PartialAnalysisBanner } from './components/PartialAnalysisBanner';
 export { BulkAnalysisButton } from './components/BulkAnalysisButton';
 export {
@@ -6,6 +7,7 @@ export {
   CANCEL_ANALYSIS_TITLE,
   CancelAnalysisButton,
 } from './components/CancelAnalysisButton';
+export { FULL_ANALYSIS_LABEL } from './components/FullAnalysisSwitch';
 export {
   REANALYSIS_TEXT,
   REANALYSIS_TITLE,

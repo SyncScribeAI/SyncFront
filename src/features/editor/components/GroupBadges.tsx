@@ -1,4 +1,4 @@
-import { Copy, Sparkles } from 'lucide-react';
+import { Copy, History, Sparkles, TriangleAlert } from 'lucide-react';
 
 import type { SuggestionResponse } from '@/api/types';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,28 @@ export function PropagatedBadge({ origin }: { origin: SuggestionResponse['origin
     <Badge className="bg-slate-100 text-slate-700 ring-slate-200">
       <Sparkles className="size-3" aria-hidden />
       {GROUP_TEXTS.propagated}
+    </Badge>
+  );
+}
+
+/** Правка пришла из прошлого анализа вместе с решением: её блок выборочная проверка не трогала. */
+export function CarriedBadge({ carriedFrom }: { carriedFrom: string | null | undefined }) {
+  if (!carriedFrom) return null;
+  return (
+    <Badge className="bg-slate-100 text-slate-700 ring-slate-200" title={GROUP_TEXTS.carriedHint}>
+      <History className="size-3" aria-hidden />
+      {GROUP_TEXTS.carried}
+    </Badge>
+  );
+}
+
+/** Решение перенесено, но основание в источнике изменилось: его стоит пересмотреть. */
+export function StaleBadge({ stale }: { stale: boolean | undefined }) {
+  if (!stale) return null;
+  return (
+    <Badge className="bg-amber-50 text-amber-800 ring-amber-200" title={GROUP_TEXTS.staleHint}>
+      <TriangleAlert className="size-3" aria-hidden />
+      {GROUP_TEXTS.stale}
     </Badge>
   );
 }

@@ -952,6 +952,22 @@ export interface components {
             contract_version?: string | null;
         };
         /**
+         * AnalysisDeltaAudit
+         * @description Сравнение выборочной задачи с контрольным полным анализом того же входа по блокам.
+         */
+        AnalysisDeltaAudit: {
+            /** Blocks Full */
+            blocks_full: number;
+            /** Blocks Delta */
+            blocks_delta: number;
+            /** Missed */
+            missed: number;
+            /** Extra */
+            extra: number;
+            /** Recall */
+            recall: number;
+        };
+        /**
          * AnalysisFlagResponse
          * @description Место документа, которое конвейер просит проверить человеку: правки нет.
          */
@@ -1044,14 +1060,14 @@ export interface components {
         };
         /**
          * AnalysisIncrementalInfo
-         * @description Как задача получила результат: вызовом ML или переносом из прошлой задачи.
+         * @description Как задача получила результат: полным анализом, переносом или выборочной проверкой.
          */
         AnalysisIncrementalInfo: {
             /**
              * Mode
              * @enum {string}
              */
-            mode: "reused" | "full";
+            mode: "reused" | "full" | "delta";
             /**
              * Reason
              * @description reused, mode_off, strategy_full, sources_failed, no_baseline или input_changed
@@ -1059,6 +1075,16 @@ export interface components {
             reason: string;
             /** Baseline Job Id */
             baseline_job_id?: string | null;
+            /**
+             * Chain Length
+             * @description Выборочных задач подряд после последнего полного анализа
+             */
+            chain_length?: number | null;
+            /**
+             * Fallback Reason
+             * @description Почему вход проверен полным анализом: причина решения о переносе или предел выборочной проверки (changed_share, blocks_share, chain_limit и другие)
+             */
+            fallback_reason?: string | null;
             /**
              * Changed Share
              * @description Доля символов источников в новых сегментах
@@ -1068,6 +1094,49 @@ export interface components {
             segments_added?: number | null;
             /** Segments Removed */
             segments_removed?: number | null;
+            /**
+             * Blocks Selected
+             * @description Блоки, проверенные заново выборочной задачей
+             */
+            blocks_selected?: number | null;
+            /** Selected By Overlap */
+            selected_by_overlap?: number | null;
+            /** Selected By Token */
+            selected_by_token?: number | null;
+            /** Selected By Evidence */
+            selected_by_evidence?: number | null;
+            /** Selected By Flag */
+            selected_by_flag?: number | null;
+            /** Carried Suggestions */
+            carried_suggestions?: number | null;
+            /** Carried Flags */
+            carried_flags?: number | null;
+            /**
+             * Stale
+             * @description Перенесённые решения, основание которых изменилось
+             */
+            stale?: number | null;
+            /**
+             * Replaced
+             * @description Ожидающие правки проверенных блоков, заменённые новым ответом
+             */
+            replaced?: number | null;
+            /**
+             * Inherited
+             * @description Новые правки, совпавшие с прошлыми и получившие их решение
+             */
+            inherited?: number | null;
+            /**
+             * Dropped Add
+             * @description Добавления, опиравшиеся только на неизменённые сегменты
+             */
+            dropped_add?: number | null;
+            /**
+             * Evidence Flags
+             * @description Флаги «основание удалено из источника»
+             */
+            evidence_flags?: number | null;
+            audit?: components["schemas"]["AnalysisDeltaAudit"] | null;
         };
         /**
          * AnalysisJobConflictResponse
@@ -2395,6 +2464,17 @@ export interface components {
             evidence?: components["schemas"]["EvidenceResponse"][];
             /** @description Только у PDF: где правка на страницах оригинала; None у других форматов */
             geometry?: components["schemas"]["PageGeometryResponse"] | null;
+            /**
+             * Carried From Id
+             * @description Правка перенесена из прошлого анализа вместе с решением; id исходной правки
+             */
+            carried_from_id?: string | null;
+            /**
+             * Stale
+             * @description Решение перенесено из прошлого анализа, а основание правки с тех пор изменилось в источнике; решение стоит пересмотреть
+             * @default false
+             */
+            stale: boolean;
             /**
              * Status
              * @enum {string}

@@ -29,6 +29,7 @@ const makeSuggestion = (
     position: 0,
     group_key: null,
     origin: 'model',
+    stale: false,
     status,
     decided_by: null,
     decided_at: null,

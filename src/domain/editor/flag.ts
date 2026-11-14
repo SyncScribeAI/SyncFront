@@ -16,6 +16,8 @@ export type FlagStatus = (typeof FLAG_STATUSES)[number];
 const REASON_LABELS: Record<string, string> = {
   sources_conflict: 'Источники расходятся',
   source_conflict: 'Источники расходятся',
+  // Флаг инкрементального анализа: основание прошлой правки исчезло, а новой правки по блоку нет.
+  evidence_removed: 'Основание удалено из источника',
 };
 
 export const FLAG_FALLBACK_REASON = 'Проверьте вручную';

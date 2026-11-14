@@ -26,7 +26,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SegmentedControl } from '@/components/ui/segmented-control';
-import { PartialAnalysisBanner, StartAnalysisButton } from '@/features/analysis';
+import {
+  IncrementalAnalysisSummary,
+  PartialAnalysisBanner,
+  StartAnalysisButton,
+} from '@/features/analysis';
 import { DocumentStatusBadge } from '@/features/documents';
 import { nextInGroup } from '@/domain/editor/groups';
 import { cn } from '@/lib/cn';
@@ -580,6 +584,7 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
         <section aria-label="Текст документа" className="min-w-0 flex-1 space-y-3">
           <PartialAnalysisBanner projectId={projectId} document={{ ...meta, status }} />
+          <IncrementalAnalysisSummary projectId={projectId} document={{ ...meta, status }} />
           {mode === 'original' ? (
             <Alert>
               <Info aria-hidden />

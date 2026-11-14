@@ -33,6 +33,7 @@ const suggestion: SuggestionResponse = {
   position: 0,
   group_key: null,
   origin: 'model',
+  stale: false,
   status: 'pending',
   decided_by: null,
   decided_at: null,

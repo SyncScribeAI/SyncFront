@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { REANALYSIS_TITLE } from '@/features/analysis';
+import { FULL_ANALYSIS_LABEL, REANALYSIS_TITLE } from '@/features/analysis';
 import {
   addDocument,
   addJob,
@@ -113,9 +113,7 @@ describe('Страница проекта', () => {
     await user.click(await screen.findByRole('button', { name: 'Анализ всех документов' }));
 
     const dialog = await screen.findByRole('alertdialog');
-    expect(
-      within(dialog).getByText(/Текущие результаты анализа будут заменены/),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/остальные правки и решения перенесёт/)).toBeInTheDocument();
     const firstCall = db.requests.find((r) => r.path.endsWith('/analysis-jobs/bulk'));
     expect(firstCall?.body).toEqual({
       document_ids: [draft.id, ready.id],
@@ -123,6 +121,7 @@ describe('Страница проекта', () => {
       strategy: 'auto',
     });
 
+    await user.click(within(dialog).getByRole('switch', { name: FULL_ANALYSIS_LABEL }));
     await user.click(within(dialog).getByRole('button', { name: 'Запустить анализ' }));
     await waitFor(() =>
       expect(
@@ -130,7 +129,7 @@ describe('Страница проекта', () => {
       ).toEqual({
         document_ids: [ready.id],
         force: true,
-        strategy: 'auto',
+        strategy: 'full',
       }),
     );
     expect(await screen.findAllByText('Идёт анализ')).toHaveLength(2);
@@ -149,17 +148,45 @@ describe('Страница проекта', () => {
     });
   });
 
-  it('запуск анализа из «Ожидает утверждения» идёт сразу, без подтверждения', async () => {
+  it('повторный анализ из «Ожидает утверждения» спрашивает подтверждение, полный выключен', async () => {
     const user = userEvent.setup();
     const { review } = setup();
     await user.click(await screen.findByRole('button', { name: 'Анализировать: review.md' }));
+    const dialog = await screen.findByRole('alertdialog', { name: REANALYSIS_TITLE });
+    expect(db.requests.some((r) => r.path.endsWith(`/documents/${review.id}/analysis-jobs`))).toBe(
+      false,
+    );
+    const full = within(dialog).getByRole('switch', { name: FULL_ANALYSIS_LABEL });
+    expect(full).not.toBeChecked();
+    await user.click(within(dialog).getByRole('button', { name: 'Запустить анализ' }));
     await waitFor(() => {
       const call = db.requests.find((r) =>
         r.path.endsWith(`/documents/${review.id}/analysis-jobs`),
       );
-      expect(call?.body).toEqual({ force: false, strategy: 'auto' });
+      expect(call?.body).toEqual({ force: true, strategy: 'auto' });
     });
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('полный повторный анализ уходит со strategy=full, а повторное открытие сбрасывает выбор', async () => {
+    const user = userEvent.setup();
+    const { ready } = setup();
+    const trigger = await screen.findByRole('button', { name: /Проверить актуальность/ });
+    await user.click(trigger);
+    let dialog = await screen.findByRole('alertdialog', { name: REANALYSIS_TITLE });
+    await user.click(within(dialog).getByRole('switch', { name: FULL_ANALYSIS_LABEL }));
+    await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+
+    await user.click(trigger);
+    dialog = await screen.findByRole('alertdialog', { name: REANALYSIS_TITLE });
+    const full = within(dialog).getByRole('switch', { name: FULL_ANALYSIS_LABEL });
+    expect(full).not.toBeChecked();
+    await user.click(full);
+    await user.click(within(dialog).getByRole('button', { name: 'Запустить анализ' }));
+    await waitFor(() => {
+      const call = db.requests.find((r) => r.path.endsWith(`/documents/${ready.id}/analysis-jobs`));
+      expect(call?.body).toEqual({ force: true, strategy: 'full' });
+    });
   });
 
   it('показывает причину неудачного анализа у черновика', async () => {
