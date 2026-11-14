@@ -59,6 +59,9 @@ export function isDocumentStatus(value: unknown): value is DocumentStatus {
 export const documentPolicy = {
   canStartAnalysis: (status: DocumentStatus): boolean => status !== 'in_progress',
   analysisNeedsConfirmation: (status: DocumentStatus): boolean => status === 'ready',
+  /** У документа есть результат анализа: повторный запуск переносит или заменяет его. */
+  hasAnalysisResults: (status: DocumentStatus): boolean =>
+    status === 'awaiting_approval' || status === 'ready',
   canEditSources: (status: DocumentStatus): boolean => status !== 'in_progress',
   canReview: (status: DocumentStatus): boolean => status === 'awaiting_approval',
   canExport: (status: DocumentStatus): boolean => status === 'ready',

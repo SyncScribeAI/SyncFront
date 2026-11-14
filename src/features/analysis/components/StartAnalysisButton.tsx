@@ -10,9 +10,11 @@ import { getErrorMessage } from '@/lib/errors';
 
 import { isConfirmationRequired, useStartAnalysis } from '../hooks/useAnalysis';
 
+import { FullAnalysisSwitch } from './FullAnalysisSwitch';
+
 export const REANALYSIS_TITLE = 'Выполнить повторную проверку документа?';
 export const REANALYSIS_TEXT =
-  'Текущие результаты анализа будут заменены. История предыдущих результатов в MVP не сохраняется.';
+  'Сервер проверит заново блоки, затронутые изменениями источников, а остальные правки и решения перенесёт из прошлого анализа. Если изменений много, документ проверяется полностью.';
 
 interface StartAnalysisButtonProps {
   projectId: string;
@@ -27,9 +29,10 @@ interface StartAnalysisButtonProps {
 }
 
 /**
- * Запуск анализа. Доступен из любого статуса, кроме «В работе»: из «Ожидает утверждения»
- * прежние правки сбрасываются сервером, для ready сразу спрашиваем подтверждение; если сервер
- * всё равно ответил 409 confirmation_required (статус успел смениться), показываем тот же диалог.
+ * Запуск анализа. Доступен из любого статуса, кроме «В работе». У документа с результатами
+ * («Ожидает утверждения» и «Готово») запуск идёт через диалог: там выбирается полный повторный
+ * анализ, и пользователь видит, что станет с решениями. Если сервер ответил 409
+ * confirmation_required (статус успел смениться), показываем тот же диалог.
  */
 export function StartAnalysisButton({
   projectId,
@@ -42,10 +45,16 @@ export function StartAnalysisButton({
 }: StartAnalysisButtonProps) {
   const start = useStartAnalysis(projectId);
   const [confirming, setConfirming] = useState(false);
+  const [full, setFull] = useState(false);
+
+  const openDialog = () => {
+    setFull(false);
+    setConfirming(true);
+  };
 
   const run = (force: boolean) => {
     start.mutate(
-      { documentId: document.id, force },
+      { documentId: document.id, force, strategy: full ? 'full' : 'auto' },
       {
         onSuccess: (job) => {
           setConfirming(false);
@@ -58,7 +67,7 @@ export function StartAnalysisButton({
         },
         onError: (error) => {
           if (isConfirmationRequired(error)) {
-            setConfirming(true);
+            if (!confirming) openDialog();
             return;
           }
           setConfirming(false);
@@ -73,7 +82,7 @@ export function StartAnalysisButton({
   const title = label ?? analysisActionLabel(document.status);
   const loading = start.isPending && !confirming;
   const onClick = () =>
-    documentPolicy.analysisNeedsConfirmation(document.status) ? setConfirming(true) : run(false);
+    documentPolicy.hasAnalysisResults(document.status) ? openDialog() : run(false);
 
   return (
     <>
@@ -107,7 +116,9 @@ export function StartAnalysisButton({
         confirmLabel="Запустить анализ"
         loading={start.isPending}
         onConfirm={() => run(true)}
-      />
+      >
+        <FullAnalysisSwitch checked={full} onCheckedChange={setFull} disabled={start.isPending} />
+      </ConfirmDialog>
     </>
   );
 }

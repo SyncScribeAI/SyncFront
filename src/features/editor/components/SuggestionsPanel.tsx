@@ -33,7 +33,7 @@ import { orderSuggestions } from '../model/orderSuggestions';
 import { EMPTY_FILTER_TEXTS, GROUP_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
-import { GroupBadge, PropagatedBadge } from './GroupBadges';
+import { CarriedBadge, GroupBadge, PropagatedBadge, StaleBadge } from './GroupBadges';
 import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 export type SuggestionFilter = 'pending' | 'decided' | 'all';
@@ -362,6 +362,8 @@ const SuggestionCard = memo(function SuggestionCard({
           <LowConfidenceBadge score={s.confidence_score} />
           <GroupBadge size={groupSize} />
           <PropagatedBadge origin={s.origin} />
+          <CarriedBadge carriedFrom={s.carried_from_id} />
+          <StaleBadge stale={s.stale} />
           {issue ? (
             <TriangleAlert
               className="size-4 shrink-0 text-amber-600"

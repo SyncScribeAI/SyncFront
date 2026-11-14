@@ -11,6 +11,7 @@ import { pluralize } from '@/lib/format';
 
 import { useBulkAnalysis } from '../hooks/useAnalysis';
 
+import { FullAnalysisSwitch } from './FullAnalysisSwitch';
 import { REANALYSIS_TEXT } from './StartAnalysisButton';
 
 interface BulkAnalysisButtonProps {
@@ -20,16 +21,20 @@ interface BulkAnalysisButtonProps {
 
 const documentsWord = ['документ', 'документа', 'документов'] as const;
 
-/** «Анализ всех документов»: draft запускается сразу, ready — после подтверждения. */
+/**
+ * «Анализ всех документов»: draft запускается сразу, ready после подтверждения. Полный
+ * повторный анализ выбирается в подтверждении и относится только к готовым документам.
+ */
 export function BulkAnalysisButton({ projectId, documents }: BulkAnalysisButtonProps) {
   const bulk = useBulkAnalysis(projectId);
   const [pendingConfirmation, setPendingConfirmation] = useState<string[]>([]);
+  const [full, setFull] = useState(false);
   const candidates = bulkCandidates(documents);
   const nameOf = (id: string) => documents.find((d) => d.id === id)?.name ?? id;
 
   const run = (documentIds: string[], force: boolean) => {
     bulk.mutate(
-      { documentIds, force },
+      { documentIds, force, strategy: force && full ? 'full' : 'auto' },
       {
         onSuccess: (response) => {
           const summary = summarizeBulkResult(response.results);
@@ -44,6 +49,7 @@ export function BulkAnalysisButton({ projectId, documents }: BulkAnalysisButtonP
                 .join('\n'),
             });
           }
+          if (!force) setFull(false);
           setPendingConfirmation(force ? [] : summary.needsConfirmation);
         },
         onError: (error) => {
@@ -82,7 +88,9 @@ export function BulkAnalysisButton({ projectId, documents }: BulkAnalysisButtonP
         cancelLabel="Пропустить"
         loading={bulk.isPending}
         onConfirm={() => run(pendingConfirmation, true)}
-      />
+      >
+        <FullAnalysisSwitch checked={full} onCheckedChange={setFull} disabled={bulk.isPending} />
+      </ConfirmDialog>
     </>
   );
 }

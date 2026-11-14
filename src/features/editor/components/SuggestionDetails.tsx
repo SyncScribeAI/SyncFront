@@ -22,7 +22,7 @@ import { evidenceOfSource } from '@/domain/source/evidence';
 import { EDITOR_TEXTS, GROUP_TEXTS, ISSUE_TEXTS } from '../model/texts';
 
 import { ChangeTypeLabel } from './ChangeTypeLabel';
-import { GroupBadge, PropagatedBadge } from './GroupBadges';
+import { CarriedBadge, GroupBadge, PropagatedBadge, StaleBadge } from './GroupBadges';
 import { LowConfidenceBadge } from './LowConfidenceBadge';
 
 interface SuggestionDetailsProps {
@@ -170,12 +170,18 @@ export function SuggestionDetails({
             <p className="font-medium text-muted-foreground">Источник недоступен</p>
           )}
           <p>{suggestion.rationale ?? 'ИИ не указал обоснование.'}</p>
-          {(group && group.size > 1) || suggestion.origin === 'propagated' ? (
+          {(group && group.size > 1) ||
+          suggestion.origin === 'propagated' ||
+          suggestion.carried_from_id ||
+          suggestion.stale ? (
             <p className="flex flex-wrap items-center gap-2">
               <GroupBadge size={group?.size} />
               <PropagatedBadge origin={suggestion.origin} />
+              <CarriedBadge carriedFrom={suggestion.carried_from_id} />
+              <StaleBadge stale={suggestion.stale} />
             </p>
           ) : null}
+          {suggestion.stale ? <p className="text-amber-800">{GROUP_TEXTS.staleHint}</p> : null}
           {confidence !== null ? (
             <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               Уверенность ИИ: {confidence}%

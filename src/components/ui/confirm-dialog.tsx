@@ -17,6 +17,8 @@ interface ConfirmDialogProps {
   loading?: boolean;
   /** Ошибка последней попытки: окно остаётся открытым, данные не меняются. */
   error?: string | null;
+  /** Дополнительные поля под описанием, например переключатель режима. */
+  children?: React.ReactNode;
   onConfirm: () => void;
 }
 
@@ -31,6 +33,7 @@ export function ConfirmDialog({
   destructive = false,
   loading = false,
   error,
+  children,
   onConfirm,
 }: ConfirmDialogProps) {
   return (
@@ -47,6 +50,7 @@ export function ConfirmDialog({
           <AlertDialog.Description className="text-sm text-muted-foreground">
             {description}
           </AlertDialog.Description>
+          {children}
           {error ? (
             <Alert variant="destructive">
               <AlertCircle />
