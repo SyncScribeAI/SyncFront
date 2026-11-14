@@ -167,6 +167,17 @@ describe('PdfView', () => {
       const rect = pages()[1]?.querySelector('[data-highlight-id="g1"]');
       expect(scroll.mock.contexts.at(-1)).toBe(rect);
       expect(rect).toHaveAttribute('data-focused', 'true');
+
+      // Продолжение на третьей странице выделено, но прокрутку не перехватывает.
+      const centred = scroll.mock.calls.length;
+      FakeObserver.current?.show([3]);
+      await waitFor(() =>
+        expect(pages()[2]?.querySelector('[data-highlight-id="g1"]')).toHaveAttribute(
+          'data-focused',
+          'true',
+        ),
+      );
+      expect(scroll).toHaveBeenCalledTimes(centred);
     } finally {
       delete (Element.prototype as Partial<Element>).scrollIntoView;
     }

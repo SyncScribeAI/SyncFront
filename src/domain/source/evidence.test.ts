@@ -4,7 +4,9 @@ import {
   docxParagraphs,
   evidenceOfSource,
   evidenceRange,
+  pdfRects,
   showsInDocx,
+  showsInPdf,
   snapshotFormat,
   type Evidence,
 } from './evidence';
@@ -98,5 +100,41 @@ describe('docxParagraphs и showsInDocx', () => {
     expect(showsInDocx(docx, evidence({ locator: null }))).toBe(false);
     expect(showsInDocx({ name: 'Регламент.pdf', type: 'file' }, evidence())).toBe(false);
     expect(showsInDocx({ name: 'https://a.ru/x.docx', type: 'url' }, evidence())).toBe(false);
+  });
+});
+
+describe('pdfRects и showsInPdf', () => {
+  const rects = [
+    [2, 72, 700, 300, 712],
+    [2, 72, 686, 250, 698],
+  ];
+  const pdfEvidence = (patch: Partial<Evidence> = {}) =>
+    evidence({ source_name: 'Регламент.pdf', locator: { kind: 'pdf_rects', rects }, ...patch });
+
+  it('читает прямоугольники строк из локатора', () => {
+    expect(pdfRects(pdfEvidence())).toEqual([
+      { page: 2, x0: 72, y0: 700, x1: 300, y1: 712 },
+      { page: 2, x0: 72, y0: 686, x1: 250, y1: 698 },
+    ]);
+  });
+
+  it('пропускает испорченные записи и чужие локаторы', () => {
+    const locator = { kind: 'pdf_rects', rects: [[0, 1, 1, 2, 2], 'x', [1, 10, 10, 20, 20]] };
+    expect(pdfRects(pdfEvidence({ locator }))).toEqual([
+      { page: 1, x0: 10, y0: 10, x1: 20, y1: 20 },
+    ]);
+    expect(pdfRects(evidence())).toEqual([]);
+    expect(pdfRects(pdfEvidence({ locator: null }))).toEqual([]);
+  });
+
+  const pdf = { name: 'Регламент.pdf', type: 'file' as const };
+  it('оригинал PDF показывается только для того же файла с прямоугольниками', () => {
+    expect(showsInPdf(pdf, pdfEvidence())).toBe(true);
+    expect(showsInPdf({ name: 'Регламент.PDF', type: 'file' }, pdfEvidence())).toBe(true);
+    expect(showsInPdf(pdf, pdfEvidence({ original_file_available: false }))).toBe(false);
+    expect(showsInPdf(pdf, pdfEvidence({ match: 'not_found' }))).toBe(false);
+    expect(showsInPdf(pdf, pdfEvidence({ locator: { kind: 'pdf_rects', rects: [] } }))).toBe(false);
+    expect(showsInPdf({ name: 'Регламент.docx', type: 'file' }, pdfEvidence())).toBe(false);
+    expect(showsInPdf({ name: 'https://a.ru/x.pdf', type: 'url' }, pdfEvidence())).toBe(false);
   });
 });

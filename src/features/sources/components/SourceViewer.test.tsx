@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Evidence } from '@/domain/source/evidence';
+import type { PdfEngine, PdfPage } from '@/lib/pdf/engine';
 
 import { SourceViewer, type PreviewableSource } from './SourceViewer';
 
@@ -169,5 +170,146 @@ describe('SourceViewer с основаниями', () => {
     api.getSourceFile.mockResolvedValue({ blob: new Blob(['docx']), filename: 'Регламент.docx' });
     open(docx, [inDocx('Пароль', 0)], () => Promise.reject(new Error('bad zip')));
     await waitFor(() => expect(highlighted()).toBe('Пароль'));
+  });
+});
+
+/** pdf.js в jsdom не работает: документ из двух страниц 600 на 800 точек без поворота. */
+function pdfEngine(failure?: Error): PdfEngine & { opened: ReturnType<typeof vi.fn> } {
+  const page: PdfPage = {
+    getViewport: ({ scale }) => ({
+      width: 600 * scale,
+      height: 800 * scale,
+      rotation: 0,
+      convertToViewportRectangle: ([x0 = 0, y0 = 0, x1 = 0, y1 = 0]) => [
+        x0 * scale,
+        (800 - y0) * scale,
+        x1 * scale,
+        (800 - y1) * scale,
+      ],
+    }),
+    render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+    cleanup: vi.fn(),
+  };
+  const opened = vi.fn();
+  return {
+    opened,
+    open: (data) => {
+      opened(data);
+      return {
+        promise: failure
+          ? Promise.reject(failure)
+          : Promise.resolve({ numPages: 2, getPage: () => Promise.resolve(page) }),
+        destroy: vi.fn(),
+      };
+    },
+  };
+}
+
+describe('SourceViewer с основаниями в PDF', () => {
+  const pdf: PreviewableSource = { id: 's1', name: 'Регламент.pdf', type: 'file' };
+  const inPdf = (needle: string, rects: number[][], patch: Partial<Evidence> = {}) =>
+    at(needle, { original_file_available: true, locator: { kind: 'pdf_rects', rects }, ...patch });
+  const first = inPdf('каждые 90 дней', [[1, 100, 700, 300, 712]]);
+  const second = inPdf('второму фактору', [
+    [2, 50, 400, 200, 412],
+    [2, 50, 386, 120, 398],
+  ]);
+
+  function openPdf(evidence: Evidence[], engine = pdfEngine()) {
+    render(
+      <SourceViewer
+        projectId="p1"
+        source={pdf}
+        evidence={evidence}
+        open
+        onOpenChange={vi.fn()}
+        pdfEngine={engine}
+      />,
+      { wrapper },
+    );
+    return engine;
+  }
+
+  const boxes = (id: string) => [
+    ...screen
+      .getByTestId('source-pdf')
+      .querySelectorAll<HTMLElement>(`[data-highlight-id="${id}"]`),
+  ];
+
+  beforeEach(() => {
+    api.getSourceFile.mockResolvedValue({
+      blob: new Blob(['%PDF-1.7']),
+      filename: 'Регламент.pdf',
+    });
+  });
+
+  it('показывает оригинал PDF и ставит прямоугольники всех оснований, текущее в фокусе', async () => {
+    const engine = openPdf([first, second]);
+    await waitFor(() => expect(boxes('0')).toHaveLength(1));
+    expect(boxes('1')).toHaveLength(2);
+    expect(boxes('0')[0]).toHaveAttribute('data-focused', 'true');
+    expect(boxes('1')[0]).not.toHaveAttribute('data-focused');
+    expect(screen.getByText('Оригинал файла', { exact: false })).toBeInTheDocument();
+    expect(api.getSourceFile).toHaveBeenCalledWith('p1', 's1', 'Регламент.pdf');
+    expect(engine.opened).toHaveBeenCalledTimes(1);
+  });
+
+  it('переход к следующему основанию переносит фокус, не открывая файл заново', async () => {
+    const user = userEvent.setup();
+    const engine = openPdf([first, second]);
+    await waitFor(() => expect(boxes('0')).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: 'Следующее основание' }));
+    await waitFor(() => expect(boxes('1')[0]).toHaveAttribute('data-focused', 'true'));
+    expect(boxes('0')[0]).not.toHaveAttribute('data-focused');
+    expect(engine.opened).toHaveBeenCalledTimes(1);
+  });
+
+  it('щелчок по прямоугольнику выбирает его основание', async () => {
+    const user = userEvent.setup();
+    openPdf([first, second]);
+    await waitFor(() => expect(boxes('1')).toHaveLength(2));
+    const target = boxes('1')[1];
+    if (!target) throw new Error('нет прямоугольника');
+    await user.click(target);
+    expect(screen.getByText('Основание 2 из 2')).toBeInTheDocument();
+  });
+
+  it('если pdf.js не открыл файл, показывает текст снимка с пояснением', async () => {
+    openPdf([first], pdfEngine(new Error('Invalid PDF')));
+    await waitFor(() => expect(highlighted()).toBe('каждые 90 дней'));
+    expect(
+      screen.getByText('Файл не открылся, показан текст на момент анализа.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('source-pdf')).not.toBeInTheDocument();
+  });
+
+  it('если файл не скачался, показывает текст снимка', async () => {
+    api.getSourceFile.mockRejectedValue(new Error('404'));
+    openPdf([first]);
+    await waitFor(() => expect(highlighted()).toBe('каждые 90 дней'));
+  });
+
+  it('без прямоугольников или с другим файлом подсветка идёт по тексту снимка', async () => {
+    openPdf([
+      inPdf('каждые 90 дней', [[1, 100, 700, 300, 712]], { original_file_available: false }),
+    ]);
+    await waitFor(() => expect(highlighted()).toBe('каждые 90 дней'));
+    expect(screen.queryByTestId('source-pdf')).not.toBeInTheDocument();
+    expect(api.getSourceFile).not.toHaveBeenCalled();
+  });
+
+  it('ненайденная цитата из PDF показывается отдельно, файл не открывается', async () => {
+    openPdf([
+      inPdf('нет такого', [[1, 1, 1, 2, 2]], {
+        match: 'not_found',
+        start_offset: null,
+        end_offset: null,
+      }),
+    ]);
+    await waitFor(() =>
+      expect(screen.getByText('Цитата в источнике не найдена')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('нет такого')).toBeInTheDocument();
+    expect(api.getSourceFile).not.toHaveBeenCalled();
   });
 });

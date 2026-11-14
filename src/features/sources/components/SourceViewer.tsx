@@ -19,15 +19,20 @@ import {
   docxParagraphs,
   EVIDENCE_MATCH_LABEL,
   evidenceRange,
+  pdfRects,
   showsInDocx,
+  showsInPdf,
   snapshotFormat,
   type Evidence,
 } from '@/domain/source/evidence';
 import { cn } from '@/lib/cn';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDate } from '@/lib/format';
+import type { PdfEngine } from '@/lib/pdf/engine';
+import type { PdfHighlight } from '@/lib/pdf/PdfView';
 
 import { DocxEvidenceView } from './DocxEvidenceView';
+import { PdfEvidenceView } from './PdfEvidenceView';
 import { SnapshotText } from './SnapshotText';
 
 export interface PreviewableSource {
@@ -46,15 +51,21 @@ interface SourceViewerProps {
   onOpenChange: (open: boolean) => void;
   /** Подмена рендерера DOCX в тестах. */
   renderDocx?: (blob: Blob, container: HTMLElement) => Promise<void>;
+  /** Подмена pdf.js в тестах. */
+  pdfEngine?: PdfEngine;
 }
 
 const NO_EVIDENCE: readonly Evidence[] = [];
 const BODY_CLASS =
   'max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 font-sans text-sm leading-6';
+// PdfView прокручивается сам: наблюдатель видимости страниц должен следить за его областью.
+const PDF_BODY_CLASS = 'overflow-hidden rounded-md border';
+const PDF_MARK_CLASS = 'bg-amber-200/50';
+const PDF_OTHER_CLASS = 'bg-amber-100/40';
 
 /**
  * Просмотр источника. С основаниями правки показывает источник на момент анализа и
- * подсвечивает цитату: оригинал DOCX, если файл тот же, иначе текст снимка. Без
+ * подсвечивает цитату: оригинал DOCX или PDF, если файл тот же, иначе текст снимка. Без
  * оснований показывает текущий текст источника только для чтения.
  */
 export function SourceViewer({
@@ -64,6 +75,7 @@ export function SourceViewer({
   open,
   onOpenChange,
   renderDocx,
+  pdfEngine,
 }: SourceViewerProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,6 +94,7 @@ export function SourceViewer({
             source={source}
             evidence={evidence}
             renderDocx={renderDocx}
+            pdfEngine={pdfEngine}
           />
         ) : (
           <CurrentContent projectId={projectId} source={source} enabled={open} />
@@ -96,11 +109,19 @@ interface EvidenceBrowserProps {
   source: PreviewableSource;
   evidence: readonly Evidence[];
   renderDocx?: (blob: Blob, container: HTMLElement) => Promise<void>;
+  pdfEngine?: PdfEngine;
 }
 
-function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBrowserProps) {
+function EvidenceBrowser({
+  projectId,
+  source,
+  evidence,
+  renderDocx,
+  pdfEngine,
+}: EvidenceBrowserProps) {
   const [index, setIndex] = useState(0);
   const [docxFailed, setDocxFailed] = useState(false);
+  const [pdfFailed, setPdfFailed] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const current = evidence[Math.min(index, evidence.length - 1)];
   const snapshotId = current?.snapshot_id ?? null;
@@ -117,16 +138,37 @@ function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBr
   );
   const docxCapable = current !== undefined && showsInDocx(source, current);
   const inDocx = docxCapable && !docxFailed;
-  const fellBack = docxCapable && docxFailed;
   const paragraphs = current ? docxParagraphs(current) : null;
+  const pdfCapable = current !== undefined && showsInPdf(source, current);
+  const inPdf = pdfCapable && !pdfFailed;
+  const inOriginal = inDocx || inPdf;
+  const fellBack = (docxCapable && docxFailed) || (pdfCapable && pdfFailed);
+  const focusId = String(index);
+
+  // Все основания файла видны сразу, текущее выделено; разбор локаторов O(E) на набор оснований.
+  const pdfHighlights = useMemo<PdfHighlight[]>(
+    () =>
+      evidence.flatMap((item, i) =>
+        showsInPdf(source, item) ? [{ id: String(i), rects: pdfRects(item) }] : [],
+      ),
+    [evidence, source],
+  );
+  const markedPdf = useMemo(
+    () =>
+      pdfHighlights.map((item) => ({
+        ...item,
+        className: item.id === focusId ? PDF_MARK_CLASS : PDF_OTHER_CLASS,
+      })),
+    [pdfHighlights, focusId],
+  );
 
   useEffect(() => {
-    if (inDocx) return;
+    if (inOriginal) return;
     // Первый фрагмент подсветки в центр; в jsdom scrollIntoView нет.
     bodyRef.current
       ?.querySelector<HTMLElement>('[data-evidence="first"]')
       ?.scrollIntoView?.({ block: 'center' });
-  }, [inDocx, range, text]);
+  }, [inOriginal, range, text]);
 
   if (!current) return null;
   const takenAt = snapshot.data?.taken_at ? formatDate(snapshot.data.taken_at) : null;
@@ -135,7 +177,20 @@ function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBr
   };
 
   let body;
-  if (inDocx && paragraphs && range && text !== null) {
+  if (inPdf) {
+    body = (
+      <PdfEvidenceView
+        projectId={projectId}
+        sourceId={source.id}
+        sourceName={source.name}
+        highlights={markedPdf}
+        focus={focusId}
+        onSelect={(id) => setIndex(Number(id))}
+        onFallback={() => setPdfFailed(true)}
+        engine={pdfEngine}
+      />
+    );
+  } else if (inDocx && paragraphs && range && text !== null) {
     body = (
       <DocxEvidenceView
         projectId={projectId}
@@ -167,7 +222,7 @@ function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBr
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <p className="text-muted-foreground">
-          {inDocx ? 'Оригинал файла' : 'Текст на момент анализа'}
+          {inOriginal ? 'Оригинал файла' : 'Текст на момент анализа'}
           {takenAt ? `, снимок от ${takenAt}` : ''}
         </p>
         {source.type === 'url' && source.url ? (
@@ -221,7 +276,9 @@ function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBr
         <div className="space-y-1 text-sm">
           {fellBack ? (
             <p className="text-muted-foreground">
-              Абзац в оригинале не найден, показан текст на момент анализа.
+              {pdfCapable
+                ? 'Файл не открылся, показан текст на момент анализа.'
+                : 'Абзац в оригинале не найден, показан текст на момент анализа.'}
             </p>
           ) : null}
           {current.match === 'not_found' ? (
@@ -231,7 +288,11 @@ function EvidenceBrowser({ projectId, source, evidence, renderDocx }: EvidenceBr
           ) : null}
         </div>
       ) : null}
-      <div ref={bodyRef} className={BODY_CLASS} data-testid="source-viewer-body">
+      <div
+        ref={bodyRef}
+        className={inPdf ? PDF_BODY_CLASS : BODY_CLASS}
+        data-testid="source-viewer-body"
+      >
         {body}
       </div>
     </div>
