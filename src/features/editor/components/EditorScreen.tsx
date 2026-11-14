@@ -34,6 +34,7 @@ import { getErrorMessage } from '@/lib/errors';
 import { useMediaQuery } from '@/lib/hooks/useMediaQuery';
 
 import { useDocumentFile } from '../hooks/useDocumentFile';
+import { flagMarkId, markTarget, pdfMarks, suggestionMarkId } from '../lib/pdfMarks';
 import { useResetDecisions, useResetReview } from '../hooks/useEditor';
 import { EDITOR_TEXTS } from '../model/texts';
 import { initialViewMode, useEditorModel, type ViewMode } from '../model/useEditorModel';
@@ -45,6 +46,7 @@ import { ExportButton } from './ExportButton';
 import { LeaveGuard } from './LeaveGuard';
 import { MarkdownDocument } from './MarkdownDocument';
 import { OriginalDocxView } from './OriginalDocxView';
+import { PdfDocumentView } from './PdfDocumentView';
 import { SuggestionDetails } from './SuggestionDetails';
 import { SuggestionsPanel, type PanelDecision } from './SuggestionsPanel';
 
@@ -139,7 +141,9 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
   const isDocx = meta.format === 'docx';
   // Markdown-документ рисуется в исходном форматировании (значение формата на бэкенде markdown).
   const isMarkdown = meta.format.toLowerCase() === 'markdown';
-  const file = useDocumentFile(projectId, meta.id, isDocx);
+  // PDF не перевёрстывается: во всех режимах исходные страницы, режим меняет только отметки.
+  const isPdf = meta.format.toLowerCase() === 'pdf';
+  const file = useDocumentFile(projectId, meta.id, isDocx || isPdf);
 
   const headerSize: ButtonProps['size'] = tablet ? 'default' : 'sm';
   const projection = mode === 'clean' ? model.projections.clean : model.projections.suggestions;
@@ -221,7 +225,8 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
 
   // На десктопе карточка «парит» над текстом рядом с выбранным блоком, не сдвигая ни текст, ни
   // панель. На узком экране и если фрагмент не найден — остаётся в правой панели.
-  const canFloat = desktop && selected !== null;
+  // У PDF своя прокрутка внутри области страниц, поэтому карточка остаётся в панели.
+  const canFloat = desktop && selected !== null && !isPdf;
 
   // Считаем позицию относительно обёртки статьи. По умолчанию карточка под блоком; если снизу
   // она вышла бы за край статьи (и растянула страницу) — над блоком. Высота карточки
@@ -377,8 +382,39 @@ export function EditorScreen({ projectId, editor, refetch }: EditorScreenProps) 
     <p className="text-sm text-muted-foreground">Документ не содержит текста.</p>
   );
 
+  const { statusOf } = model;
+  const marks = useMemo(
+    () =>
+      isPdf ? pdfMarks({ mode, suggestions: model.suggestions, statusOf, flags: model.flags }) : [],
+    [isPdf, mode, model.suggestions, statusOf, model.flags],
+  );
+  const markFocus = selected
+    ? suggestionMarkId(selected.id)
+    : selectedFlagId && mode === 'suggestions'
+      ? flagMarkId(selectedFlagId)
+      : null;
+  const selectMark = useCallback(
+    (markId: string) => {
+      const target = markTarget(markId);
+      if (target?.kind === 'suggestion') setSelectedId(target.id);
+      else if (target?.kind === 'flag') selectFlagInText(target.id);
+    },
+    [selectFlagInText],
+  );
+
   // Word: «Оригинал» — чистый рендер файла; «Правки»/«Чистовик» — тот же рендер с якорями правок.
-  const article = !isDocx ? (
+  const article = isPdf ? (
+    <PdfDocumentView
+      file={file.data}
+      loading={file.isLoading}
+      error={file.error}
+      highlights={marks}
+      focus={markFocus}
+      onHighlightClick={selectMark}
+      pageSizes={model.content.pages ?? undefined}
+      fallback={plainText}
+    />
+  ) : !isDocx ? (
     plainText
   ) : mode === 'original' ? (
     <OriginalDocxView

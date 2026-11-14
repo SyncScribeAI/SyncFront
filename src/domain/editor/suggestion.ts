@@ -60,6 +60,8 @@ export interface EditorSuggestion {
   /** Порядок внутри ответа модели; сервер уже сортирует по нему, см. orderSuggestions. */
   position?: number;
   status: SuggestionStatus;
+  /** Только у PDF: прямоугольники правки на страницах оригинала, см. domain/pdf. */
+  geometry?: { rects?: unknown } | null;
 }
 
 /**

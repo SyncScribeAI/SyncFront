@@ -37,6 +37,8 @@ interface DbDocument {
   sections: { ref: string; start_offset: number; end_offset: number }[];
   /** Блоки EditorContent.blocks; у документов прежнего конвейера их нет. */
   blocks: EditorBlockResponse[];
+  /** Размеры страниц PDF для EditorContent.pages; у других форматов их нет. */
+  pages?: { number: number; width: number; height: number }[];
   reviewVersion: number;
 }
 
@@ -530,7 +532,12 @@ export function backendHandlers(db: Db) {
       const limit = Number(url.searchParams.get('suggestions_limit') ?? 50);
       const offset = Number(url.searchParams.get('suggestions_offset') ?? 0);
       const list = suggestionsOf(db, doc);
-      const content = { plain_text: doc.text, sections: doc.sections, blocks: doc.blocks };
+      const content = {
+        plain_text: doc.text,
+        sections: doc.sections,
+        blocks: doc.blocks,
+        ...(doc.pages ? { pages: doc.pages } : {}),
+      };
       const withResults = doc.status === 'awaiting_approval' || doc.status === 'ready';
       return HttpResponse.json({
         document: {
