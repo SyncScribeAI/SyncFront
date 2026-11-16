@@ -57,7 +57,7 @@ export function AnalysisProgress({ projectId, document, onOpenDocument }: Analys
       <p className="max-w-sm text-sm text-muted-foreground">
         {hasSuggestions
           ? 'Откройте документ, чтобы рассмотреть предложенные правки.'
-          : 'Предложений нет, документ получил статус «Готово».'}
+          : 'Предложений нет, документ перешёл в статус «Готово».'}
       </p>
       <Button asChild size="sm">
         <Link to={link} onClick={onOpenDocument}>

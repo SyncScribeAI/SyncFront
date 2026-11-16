@@ -66,7 +66,8 @@ export function decorateAnchor(
     }
     if (changeType !== 'delete') {
       const ins = doc.createElement('ins');
-      ins.className = changeType === 'add' ? 'no-underline' : INS_PENDING;
+      ins.className =
+        changeType === 'add' ? 'font-medium text-foreground no-underline' : INS_PENDING;
       ins.textContent = newText;
       element.appendChild(ins);
     }
@@ -95,7 +96,8 @@ export function decorateAnchor(
         : 'bg-muted/40';
   element.className = cn(
     BASE_CLASS,
-    changeType === 'add' ? 'my-2 block rounded-md px-2 py-1' : 'px-0.5',
+    'px-0.5',
+    changeType === 'add' && 'w-fit max-w-full',
     tone,
     selected && 'ring-2 ring-primary ring-offset-1',
   );
