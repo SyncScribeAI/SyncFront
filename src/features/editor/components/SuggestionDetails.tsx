@@ -111,7 +111,7 @@ export function SuggestionDetails({
   return (
     <section
       aria-label="Карточка предложения"
-      className="animate-fade-in overflow-hidden rounded-xl border bg-card shadow-xl"
+      className="animate-fade-in overflow-hidden rounded-xl border bg-card shadow-[0_18px_48px_-12px_rgba(15,23,42,0.32),0_4px_14px_rgba(15,23,42,0.14)]"
     >
       <header className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold">

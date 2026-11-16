@@ -31,6 +31,33 @@ const run = (
 ) => anchorSuggestions(root, { suggestions, sections, plainText });
 
 describe('anchorSuggestions', () => {
+  it.each([false, true])('добавление наследует типографику DOCX, границы: %s', (withBlocks) => {
+    const root = host(
+      '<p style="margin-bottom:9pt;line-height:1.4"><span style="font-family:Arial;font-size:11pt;font-weight:400">якорь</span></p>',
+    );
+    const add = s({
+      change_type: 'add',
+      original_text: 'якорь',
+      suggested_text: 'новый абзац',
+      ...(withBlocks ? { start_offset: 0, end_offset: 5, block_id: 'b1' } : {}),
+    });
+    const report = anchorSuggestions(root, {
+      suggestions: [add],
+      sections: [],
+      plainText: 'якорь',
+      blocks: withBlocks
+        ? [{ ref: 'b1', type: 'paragraph', start_offset: 0, end_offset: 5, editable: true }]
+        : undefined,
+    });
+    const paragraph = report.anchored.get(add.id);
+    expect(paragraph?.style.fontFamily).toBe('Arial');
+    expect(paragraph?.style.fontSize).toBe('11pt');
+    expect(paragraph?.style.fontWeight).toBe('400');
+    expect(paragraph?.style.marginBottom).toBe('9pt');
+    expect(paragraph?.style.lineHeight).toBe('1.4');
+    expect(paragraph?.previousElementSibling).toBe(root.firstElementChild);
+  });
+
   it('оборачивает первое вхождение внутри абзаца и не трогает остальной текст', () => {
     const root = host('<p>Срок — 10 дней. Ещё 10 дней.</p>');
     const m = s({ change_type: 'modify', original_text: '10 дней', suggested_text: '14 дней' });

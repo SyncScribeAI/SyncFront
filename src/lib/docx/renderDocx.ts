@@ -25,7 +25,7 @@ export async function renderDocx(blob: Blob, container: HTMLElement): Promise<vo
 // Явные inline-рамки из документа имеют приоритет над этими классами.
 export const DOCX_HOST_CLASS = cn(
   'docx-host',
-  '[&_.docx]:!min-h-0 [&_.docx]:!w-auto [&_.docx]:!bg-transparent [&_.docx]:!p-0 [&_.docx]:!shadow-none',
+  '[&_.docx]:!min-h-0 [&_.docx]:!w-auto [&_.docx]:!overflow-visible [&_.docx]:!bg-transparent [&_.docx]:!p-0 [&_.docx]:!shadow-none',
   '[&_.docx_table]:my-3 [&_.docx_table]:w-full [&_.docx_table]:border-collapse',
   '[&_.docx_td]:border [&_.docx_td]:border-border [&_.docx_td]:px-2 [&_.docx_td]:py-1 [&_.docx_td]:align-top',
   '[&_.docx_th]:border [&_.docx_th]:border-border [&_.docx_th]:px-2 [&_.docx_th]:py-1 [&_.docx_th]:align-top',

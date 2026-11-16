@@ -75,6 +75,45 @@ function paragraphForAdd(blocks: FlatBlock[], suggestion: EditorSuggestion): HTM
   return blocks.find((block) => normalizeAddAnchor(block.text).includes(needle))?.element ?? null;
 }
 
+/** Новый абзац получает типографику DOCX, а не шрифт оболочки приложения. */
+function additionParagraph(after: HTMLElement, id: string): HTMLElement {
+  const doc = after.ownerDocument;
+  const paragraph = doc.createElement('p');
+  paragraph.setAttribute(ANCHOR_ATTR, id);
+  const view = doc.defaultView;
+  if (!view) return paragraph;
+
+  const paragraphStyle = view.getComputedStyle(after);
+  for (const property of [
+    'margin-top',
+    'margin-bottom',
+    'margin-left',
+    'margin-right',
+    'line-height',
+    'text-align',
+    'text-indent',
+  ]) {
+    const value = paragraphStyle.getPropertyValue(property);
+    if (value) paragraph.style.setProperty(property, value);
+  }
+  // docx-preview часто задаёт шрифт на ране внутри абзаца, а не на самом <p>.
+  const walker = doc.createTreeWalker(after, 4 /* SHOW_TEXT */);
+  let node = walker.nextNode();
+  while (node && !node.textContent?.trim()) node = walker.nextNode();
+  const runStyle = view.getComputedStyle(node?.parentElement ?? after);
+  for (const property of [
+    'font-family',
+    'font-size',
+    'font-weight',
+    'font-style',
+    'letter-spacing',
+  ]) {
+    const value = runStyle.getPropertyValue(property);
+    if (value) paragraph.style.setProperty(property, value);
+  }
+  return paragraph;
+}
+
 /** Абзац DOM для блока и смещение начала текста блока внутри него. */
 interface BlockTarget {
   element: HTMLElement;
@@ -225,8 +264,7 @@ export function anchorSuggestions(root: HTMLElement, input: AnchorInput): Anchor
   // addnext в экспорте ставит каждый следующий абзац за предыдущим добавленным — порядок выдачи.
   for (const item of spannedAdds) {
     const after = lastAdded.get(item.target.element) ?? item.target.element;
-    const paragraph = root.ownerDocument.createElement('p');
-    paragraph.setAttribute(ANCHOR_ATTR, item.suggestion.id);
+    const paragraph = additionParagraph(item.target.element, item.suggestion.id);
     after.insertAdjacentElement('afterend', paragraph);
     lastAdded.set(item.target.element, paragraph);
     originals.set(paragraph, root.ownerDocument.createDocumentFragment());
@@ -242,8 +280,7 @@ export function anchorSuggestions(root: HTMLElement, input: AnchorInput): Anchor
       missed.set(suggestion.id, 'not_found');
       continue;
     }
-    const paragraph = root.ownerDocument.createElement('p');
-    paragraph.setAttribute(ANCHOR_ATTR, suggestion.id);
+    const paragraph = additionParagraph(after, suggestion.id);
     after.insertAdjacentElement('afterend', paragraph);
     originals.set(paragraph, root.ownerDocument.createDocumentFragment());
     anchored.set(suggestion.id, paragraph);
